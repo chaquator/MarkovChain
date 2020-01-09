@@ -214,28 +214,6 @@ namespace MarkovChain {
 		}
 		// OLD!!!!
 
-		// Enums
-
-		/// <summary>
-		/// Enum for different stages of entire ingesting pipeline being finished
-		/// </summary>
-		public enum PipelineStages {
-			none,
-			csv_ingesting,
-			filtering,
-			dictionarizing,
-			markovizing
-		}
-
-		/// <summary>
-		/// Various states for ingesting, which 
-		/// will sift up by end of the function
-		/// </summary>
-		public enum IngestStatus {
-			ALL_GOOD,
-			ERROR_COLUMN_NOT_FOUND
-		}
-
 		// Structures for ingesting
 
 		/// <summary>
@@ -350,21 +328,82 @@ namespace MarkovChain {
 		}
 
 		/// <summary>
-		/// Thread functions for ingesting
+		/// Main object to facilitate concurrent pipelined ingesting
 		/// </summary>
-		public class Threads {
-			/// <summary>
-			/// Reads relevant column from input CSV file and
-			/// sends to queue for next stage in pipeline; sets
-			/// ready flag whenever finished
-			/// </summary>
-			/// <param name="options">Options for ingesting</param>
-			/// <param name="outqueue_filter">Queue which function sends out ingested data from</param>
-			/// <param name="ready">Ready flag, should be passed in as false, set to true at the end</param>
-			public static bool CSV_Ingest(ref IngestOptions options, ref ConcurrentQueue<string> outqueue_filter,
-										ref bool ready, out IngestStatus status) {
-				status = IngestStatus.ALL_GOOD;
+		public class Pipeline {
+			// ---Pipeline
+			//	INPUT CSV --(INGESTING) --> RAW STRINGS --(FILTERING)--> LIST OF SENTENCE STRINGS --(DICTIONARIZING)-->
+			//	--> SENTENCE BANK --(MARKOVIZING)--> MARKOV STRUCTURE
 
+			public IngestOptions options;
+			public Stages stage;
+			public Status status;
+
+			public ConcurrentQueue<string>	conqueue_csv,
+											conqueue_filtered; // set to private later
+			private bool	csv_ingest_finished,
+							filtering_finished;
+
+			// there will be more
+
+			// Enums
+
+			/// <summary>
+			/// Enum for different stages of entire ingesting pipeline being finished
+			/// </summary>
+			public enum Stages {
+				csv_ingesting,
+				filtering,
+				dictionarizing,
+				markovizing,
+				finished
+			}
+
+			/// <summary>
+			/// Various states for ingesting, which 
+			/// will sift up by end of the function
+			/// </summary>
+			public enum Status {
+				ALL_GOOD,
+				ERROR_COLUMN_NOT_FOUND
+			}
+
+			/// <summary>
+			/// Constructor
+			/// </summary>
+			/// <param name="opt"></param>
+			public Pipeline(IngestOptions opt) {
+				options = opt;
+
+				stage = Stages.csv_ingesting;
+				status = Status.ALL_GOOD;
+
+				// Threads
+				conqueue_csv = new ConcurrentQueue<string>();
+				csv_ingest_finished = false;
+
+				conqueue_filtered = new ConcurrentQueue<string>();
+				filtering_finished = false;
+
+				conqueue_filtered = new ConcurrentQueue<string>();
+			}
+
+			/// <summary>
+			/// Master start function
+			/// </summary>
+			public void Start() {
+				Thread thread_csv = new Thread(Thread_CSV_Ingest);
+				thread_csv.Start();
+
+				thread_csv.Join();
+			}
+
+			// Threads
+
+			/// <summary>
+			/// CSV Ingesting stage master thread
+			/// </summary>
+			private void Thread_CSV_Ingest() {
 				using (TextFieldParser parser = new TextFieldParser(options.infile_csv)) {
 					parser.TextFieldType = FieldType.Delimited;
 					parser.SetDelimiters(";");
@@ -375,22 +414,79 @@ namespace MarkovChain {
 
 					// Discover index for relevant column (options.csv_column)
 					uint column_ind = 0;
-					foreach(string f in fields) {
+					foreach (string f in fields) {
 						if (f == options.csv_column) break;
 						++column_ind;
 					}
 
-					// If no index discovered, return false, set status
-					if(column_ind == fields.Length) {
-						status = IngestStatus.ERROR_COLUMN_NOT_FOUND;
-						return false;
+					// If no index discovered, failure
+					if (column_ind == fields.Length) {
+						status = Status.ERROR_COLUMN_NOT_FOUND;
+						Failure_Callback();
+						return;
 					}
 
-					// While not end of stream, read off specific column, push onto outqueue
+					// Console.WriteLine(column_ind);
+
+					// While not end of stream, read off specific column, push onto filter queue
+					while(!parser.EndOfData) {
+						fields = parser.ReadFields();
+						string msg = fields[column_ind];
+
+						if (msg != "") conqueue_csv.Enqueue(msg);
+					}
 				}
 
-				ready = true;
-				return true;
+				csv_ingest_finished = true;
+				return;
+			}
+
+			/// <summary>
+			/// Filtering leader thread. Launches filtering work
+			/// thread(s), manages finished flag for filtering
+			/// </summary>
+			/// <remarks>Finished flag :- all filtering thread(s) are finished</remarks>
+			private void Thread_Filter_Lead() {
+				//	Filtering master thread --
+				//		Launches all filtering threads
+				//		Manages finished flag for filtering
+				//		Finished flag :- all filtering threads are finished
+
+				// ...
+			}
+
+			/// <summary>
+			/// Filtering work thread(s).
+			/// </summary>
+			private void Thread_Filter_Work() {
+				//	Filtering thread(s) --
+				//		until CSV Ingest is finished (known by flag),
+				//		take one line and run through filters, then queue onto sentence string queue for dictionarizing
+				//		Finished flag :- CSV Ingest is finished, Filtering queue is empty
+
+				// Stop :- csv_ingest_finihed, conqueue_csv.IsEmpty
+				while (!(csv_ingest_finished && conqueue_csv.IsEmpty)) {
+					if (conqueue_csv.TryDequeue(out string piece)) {
+						// ...
+					} else {
+						// me guess is csv finished flag is still false, queue is empty waiting to be filled
+						// very slim chance flag is true, and there was a small race condition between
+						// entering the while and pulling
+						Thread.Yield();
+					}
+				}
+			}
+
+			/// <summary>
+			/// Failure callback function, executes whenver there is some sort of failure.
+			/// </summary>
+			private void Failure_Callback() {
+				Console.WriteLine("Failure has occured!");
+				switch(status) {
+					case Status.ERROR_COLUMN_NOT_FOUND:
+						Console.WriteLine("Column {0} not found in {1}!", options.csv_column, options.infile_csv);
+						break;
+				}
 			}
 		}
 
@@ -398,17 +494,7 @@ namespace MarkovChain {
 		/// Master ingesting function, pipelined to increase throughput
 		/// </summary>
 		/// <param name="options">Options struct for ingesting</param>
-		public static bool IngestPipelined(ref IngestOptions options, out IngestStatus status) {
-			status = IngestStatus.ALL_GOOD;
-
-			ConcurrentQueue<string> conque_filter = new ConcurrentQueue<string>();
-			bool csv_ready = false;
-			// TODO: make this work (reorganize code, potentially some sort of
-			// Pipeline object which has the necessary internal states (concurrentqueues),
-			// and all that. it will be necesssary to figure out if and how to spawn multiple threads
-			// for certain stages with this new orgnization
-			Thread csv = new Thread(() => Threads.CSV_Ingest(ref options, ref conque_filter, ref csv_ready, out status));
-
+		public static bool IngestPipelined(ref IngestOptions options, out Pipeline.Status status) {
 			// ---Pipeline
 			//	INPUT CSV --(INGESTING) --> RAW STRINGS --(FILTERING)--> LIST OF SENTENCE STRINGS --(DICTIONARIZING)-->
 			//	--> SENTENCE BANK --(MARKOVIZING)--> MARKOV STRUCTURE
@@ -492,7 +578,10 @@ namespace MarkovChain {
 			//	MARKOV SEGMENT -- N-GRAM, N-GRAM SUCCESSOR
 			//	N-GRAM SUCCESSOR -- N-GRAM, ASSOCIATED WEIGHT
 
-			return true;
+			Pipeline pipe = new Pipeline(options);
+			pipe.Start();
+			status = pipe.status;
+			return status == Pipeline.Status.ALL_GOOD;
 		}
 	}
 
@@ -520,7 +609,7 @@ namespace MarkovChain {
 				gram_size = 3,
 				outfile_markov = "test.markov"
 			};
-			Ingesting.IngestPipelined(ref opts, out Ingesting.IngestStatus status);
+			if(!Ingesting.IngestPipelined(ref opts, out Ingesting.Pipeline.Status status)) Console.WriteLine("Some sort of error occured.");
 		}
 	}
 }
