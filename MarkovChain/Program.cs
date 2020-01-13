@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Collections.Concurrent;
 
 using System.Text.RegularExpressions; // regex
@@ -339,10 +340,14 @@ namespace MarkovChain {
 			public Stages stage;
 			public Status status;
 
+			// Concurrent queues
+			// set to private later
 			public ConcurrentQueue<string>	conqueue_csv,
-											conqueue_filtered; // set to private later
-			private bool	csv_ingest_finished,
-							filtering_finished;
+											conqueue_filtered;
+
+			// Flags
+			private bool	flag_csv,
+							flag_filter;
 
 			// there will be more
 
@@ -380,12 +385,10 @@ namespace MarkovChain {
 
 				// Threads
 				conqueue_csv = new ConcurrentQueue<string>();
-				csv_ingest_finished = false;
+				flag_csv = false;
 
 				conqueue_filtered = new ConcurrentQueue<string>();
-				filtering_finished = false;
-
-				conqueue_filtered = new ConcurrentQueue<string>();
+				flag_filter = false;
 			}
 
 			/// <summary>
@@ -393,9 +396,13 @@ namespace MarkovChain {
 			/// </summary>
 			public void Start() {
 				Thread thread_csv = new Thread(Thread_CSV_Ingest);
+				Thread thread_filter = new Thread(Thread_Filter_Lead);
+
 				thread_csv.Start();
+				thread_filter.Start();
 
 				thread_csv.Join();
+				thread_filter.Join();
 			}
 
 			// Threads
@@ -404,6 +411,7 @@ namespace MarkovChain {
 			/// CSV Ingesting stage master thread
 			/// </summary>
 			private void Thread_CSV_Ingest() {
+				Console.WriteLine("[CSV]: Starting...");
 				using (TextFieldParser parser = new TextFieldParser(options.infile_csv)) {
 					parser.TextFieldType = FieldType.Delimited;
 					parser.SetDelimiters(";");
@@ -429,7 +437,9 @@ namespace MarkovChain {
 					// Console.WriteLine(column_ind);
 
 					// While not end of stream, read off specific column, push onto filter queue
-					while(!parser.EndOfData) {
+					while (!parser.EndOfData) {
+						// Console.WriteLine("[CSV]: Ingesting line...");
+
 						fields = parser.ReadFields();
 						string msg = fields[column_ind];
 
@@ -437,8 +447,8 @@ namespace MarkovChain {
 					}
 				}
 
-				csv_ingest_finished = true;
-				return;
+				Console.WriteLine("[CSV]: Finished!");
+				flag_csv = true;
 			}
 
 			/// <summary>
@@ -452,22 +462,55 @@ namespace MarkovChain {
 				//		Manages finished flag for filtering
 				//		Finished flag :- all filtering threads are finished
 
-				// ...
+				int concur = 1; // TODO: put this into options
+
+				Task[] workers = new Task[concur];
+
+				Console.WriteLine("[Filter Lead]: Dispatching {0} workers...", concur);
+
+				for (int i = 0; i < concur; ++i) {
+					workers[i] = Task.Run(() => Thread_Filter_Work(i));
+				}
+
+				Task.WaitAll(workers);
+
+				Console.WriteLine("[Filter Lead]: Workers finished!");
+
+				flag_filter = true;
 			}
 
 			/// <summary>
 			/// Filtering work thread(s).
 			/// </summary>
-			private void Thread_Filter_Work() {
+			private void Thread_Filter_Work(int id) {
 				//	Filtering thread(s) --
 				//		until CSV Ingest is finished (known by flag),
 				//		take one line and run through filters, then queue onto sentence string queue for dictionarizing
 				//		Finished flag :- CSV Ingest is finished, Filtering queue is empty
 
+				// TODO: Switch to local queues which lead thread fills some day
+
+				Console.WriteLine("[Filter #{0}]: Starting...", id);
+
 				// Stop :- csv_ingest_finihed, conqueue_csv.IsEmpty
-				while (!(csv_ingest_finished && conqueue_csv.IsEmpty)) {
+				while (!(flag_csv && conqueue_csv.IsEmpty)) {
 					if (conqueue_csv.TryDequeue(out string piece)) {
-						// ...
+						// Take piece out, run through filters, enqueue if applicable
+						foreach (var filter in options.regex_filters) {
+							// Console.WriteLine("[Filter #{0}]: Pulling from CSV queue...", id);
+
+							piece = Regex.Replace(piece, filter.Item1, filter.Item2);
+
+							// No bother filtering if string is already empty
+							if (piece == "") break;
+						}
+
+						// Skip enqueuing string is empty
+						if (piece == "") continue;
+
+						// Console.WriteLine("[Filter #{0}]: Enqueuing piece...", id);
+
+						conqueue_filtered.Enqueue(piece);
 					} else {
 						// me guess is csv finished flag is still false, queue is empty waiting to be filled
 						// very slim chance flag is true, and there was a small race condition between
@@ -475,6 +518,43 @@ namespace MarkovChain {
 						Thread.Yield();
 					}
 				}
+
+				Console.WriteLine("[Filter #{0}]: Finished!", id);
+			}
+
+			private void Thread_Dictionarize_Lead() {
+				//	Dictionarizing thread(s) --
+				//		Each thread has a local word-cloud (hash table), word-list, and sentence list (queue)
+				//		Dequeue a sentence string from queue, dictionarize to local cloud and word-list, push sentence to local list
+				//		Local cloud and dictionary are ref parameters managed by master
+				//		Finished flag :- Filtering is finished, sentence string queue is empty
+			}
+
+			private void Thread_Dictionarize_Work(int id) {
+				//	Dictionarization master thread --
+				//		Has master word-cloud, word-list, sentence queue for markovization
+				//		For each thread, master has enumerator for its local word-list
+				//		Launches all dictionarizing threads, supplying local clouds and lists
+				//		Sweep --
+				//			Monitors counts of each thread's dictionary counts as a current sum
+				//			Once current sum is past some threshold, or functions are finished,
+				//				Go through each thread's local list (starting at current enumerator)
+				//				process into master dictioanry with master word cloud, increment enumerator until at end of local list
+				//				Once all threads' lists have been processed, dequeue local sentences from each thread and
+				//				enqueue into master sentence queue for markovization
+				//		Finished flag :-	all dictionarization threads are themselves finished,
+				//							their local lists have been processed into master dictioanry,
+				//							master dictionary has been written out,
+				//							all sentences from each local thread have been enqueued--
+				//								--into master sentence queue for markovization
+			}
+
+			private void Thread_Markovize_Lead() {
+
+			}
+
+			private void Thread_Markovize_Work(int id) {
+
 			}
 
 			/// <summary>
@@ -482,7 +562,7 @@ namespace MarkovChain {
 			/// </summary>
 			private void Failure_Callback() {
 				Console.WriteLine("Failure has occured!");
-				switch(status) {
+				switch (status) {
 					case Status.ERROR_COLUMN_NOT_FOUND:
 						Console.WriteLine("Column {0} not found in {1}!", options.csv_column, options.infile_csv);
 						break;
@@ -609,7 +689,7 @@ namespace MarkovChain {
 				gram_size = 3,
 				outfile_markov = "test.markov"
 			};
-			if(!Ingesting.IngestPipelined(ref opts, out Ingesting.Pipeline.Status status)) Console.WriteLine("Some sort of error occured.");
+			if (!Ingesting.IngestPipelined(ref opts, out Ingesting.Pipeline.Status status)) Console.WriteLine("Some sort of error occured.");
 		}
 	}
 }
