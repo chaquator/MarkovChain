@@ -11,209 +11,29 @@ using System.IO; // StreamWriter, StreamReader
 using System.Text.Json; // JSON
 
 namespace MarkovChain {
-	// Here so no function complains for the time being
-	public struct SentenceBank {
-		public string[] dictionary;
-		public int[][] sentences;
+	public static class Utils {
+		/// <summary>
+		/// Sweep over text
+		/// </summary>
+		/// <param name="Text"></param>
+		/// <returns></returns>
+		/// <remarks>https://stackoverflow.com/a/1443004</remarks>
+		public static IEnumerable<string> WordList(this string Text) {
+			int cIndex = 0;
+			int nIndex;
+			while ((nIndex = Text.IndexOf(' ', cIndex + 1)) != -1) {
+				int sIndex = (cIndex == 0 ? 0 : cIndex + 1);
+				yield return Text.Substring(sIndex, nIndex - sIndex);
+				cIndex = nIndex;
+			}
+			yield return Text.Substring(cIndex + 1);
+		}
 	}
 
 	/// <summary>
 	/// Class holds several functions for processing data.
 	/// </summary>
 	class Ingesting {
-
-		// OLD!!!!
-		/// <summary>
-		/// Function ingests filein CSV, filters all entries in column corresponding with comp according to
-		/// replacement tuples (regex-match, replace), and outputs to fileout seperated by newlines
-		/// </summary>
-		/// <param name="filein">Input CSV File</param>
-		/// <param name="comp">Name of column intended to ingest</param>
-		/// <param name="filters">Array of string tuples where the first string is a regex match pattern,
-		///	and the second string is what to replace the match with</param>
-		/// <param name="fileout">Output file</param>
-		public static void Ingest(string filein, string comp, Tuple<string, string>[] filters, string fileout) {
-			using (TextFieldParser parser = new TextFieldParser(filein)) {
-				parser.TextFieldType = FieldType.Delimited;
-				parser.SetDelimiters(";");
-
-				string[] fields;
-				fields = parser.ReadFields(); // Parsing first line
-
-				// Comment index
-				uint com_pos = 0;
-
-				// Search for corresponding column for comp
-				foreach (string f in fields) {
-					if (f == comp) break;
-					++com_pos;
-				}
-
-				// Ensure we found what we were looking for (comp)
-				if (com_pos == fields.Length) {
-					// Didn't find comp (because we reached the end of the fields)
-					Console.WriteLine("Compstring {0} not found.", comp);
-					return;
-				}
-
-				Console.WriteLine("ingesting...");
-
-				// Start ingesting, filtering, then regurgitating to output file line by line
-				uint ind;
-				string field;
-				using (StreamWriter out_sw = new StreamWriter(fileout)) {
-					while (!parser.EndOfData) {
-						ind = 0;
-
-						// Reads line by line
-						fields = parser.ReadFields();
-
-						// All fields in current line
-						foreach (string f in fields) {
-							field = f;
-
-							// Ingest comment
-							if (ind == com_pos) {
-								// Ingest non-empty
-								if (field != "") {
-									// Filter things out (by replacing)
-									foreach (var filter in filters) {
-										field = Regex.Replace(field, filter.Item1, filter.Item2);
-									}
-
-									// Skip if message is wholly filtered out
-									if (field == "") break;
-
-									// Console.WriteLine(field); // output to be sure
-
-									// Write out filtered text
-									out_sw.WriteLine(field);
-								}
-
-								// No need to process any more fields on this line
-								break;
-							}
-
-							ind++;
-						}
-					}
-				}
-
-				Console.WriteLine("done!");
-			}
-		}
-		// OLD!!!!
-
-		// OLD!!!!
-		/// <summary>
-		/// Function takes in filein file and builds a dictionary of unique words so as to compactly
-		/// represent sentences as an array of dictionary indeces (array of ints). Words delimited by
-		/// spaces, sentences delimited by newlines.
-		/// </summary>
-		/// <param name="filein">Input file, plain-text messages seperated by newlines</param>
-		/// <returns>SentenceBank of dictionarized file</returns>
-		public static SentenceBank Dictionarize(string filein) {
-			// Idea is to ingest line by line, create array sized to fit each word of line
-			// convert each word to corresponding unique dictionary index, fit into array
-			// correspondingly, and add to ret's sentences list
-
-			// Resultant dictionary and list of associated sentences
-			List<string> dic = new List<string>();
-			List<int[]> sent = new List<int[]>();
-
-			using (StreamReader reader = new StreamReader(filein)) {
-				Dictionary<string, int> wordmap = new Dictionary<string, int>();
-
-				string curline;
-				string[] words;
-
-				int curindex;
-				List<int> cursent;
-
-				Console.WriteLine("dictionarizing...");
-
-				while (!reader.EndOfStream) {
-					// Reset working sentence list (gl garbage collection)
-					cursent = new List<int>();
-
-					curline = reader.ReadLine();
-
-					// Chunk into words (by spaces)
-					// TODO: in the future see if this can be replaced by some sort of stream construct
-					words = curline.Split(' ');
-
-					// Process each word
-					foreach (string word in words) {
-						if (!wordmap.TryGetValue(word, out curindex)) {
-							// Value was not retrieved, word is unique!
-							// Add to dictionary and all
-
-							curindex = dic.Count();
-
-							dic.Add(word);
-							wordmap[word] = curindex;
-						}
-
-						// Current index into current sentence
-						cursent.Add(curindex);
-					}
-
-					// Add end-of-message token at end
-					cursent.Add(-1);
-
-					// Convert current sentence to int array, add to sentences list
-					sent.Add(cursent.ToArray());
-				}
-
-				Console.WriteLine("done!");
-			}
-
-			SentenceBank ret = new SentenceBank {
-				dictionary = dic.ToArray(),
-				sentences = sent.ToArray()
-			};
-			return ret;
-		}
-		// OLD!!!!
-
-		// OLD!!!!
-		/// <summary>
-		/// Function writes provided bank to outfile
-		/// </summary>
-		/// <remarks>
-		/// Encoding: JSON
-		/// </remarks>
-		/// <param name="outfile">Output filename</param>
-		/// <param name="bank">Given sentence bank</param>
-		public static void SaveBank(string outfile, SentenceBank bank) {
-			var options = new JsonSerializerOptions {
-				WriteIndented = false
-			};
-
-			Console.WriteLine("saving...");
-			using (FileStream out_fstream = new FileStream(outfile, FileMode.Create)) {
-				using (Utf8JsonWriter out_json_wr = new Utf8JsonWriter(out_fstream)) {
-					JsonSerializer.Serialize<SentenceBank>(out_json_wr, bank, options);
-				}
-			}
-			Console.WriteLine("done!");
-
-			// Console.WriteLine(JsonSerializer.Serialize<SentenceBank>(bank, options));
-		}
-		// OLD!!!!
-
-		// OLD!!!!
-		/// <summary>
-		/// Opens bank JSON and serializes it into a SentenceBank structure
-		/// </summary>
-		/// <param name="infile">Input filename</param>
-		/// <returns></returns>
-		public static SentenceBank OpenBank(string infile) {
-			using (FileStream in_fstream = new FileStream(infile, FileMode.Open)) {
-				return JsonSerializer.DeserializeAsync<SentenceBank>(in_fstream).Result;
-			}
-		}
-		// OLD!!!!
 
 		// Structures for ingesting
 
@@ -237,12 +57,6 @@ namespace MarkovChain {
 			/// replaced with rep in the order listed by the array.
 			/// </summary>
 			public Tuple<string, string>[] regex_filters;
-
-			/// <summary>
-			/// Threshold of total unique words for dictionarizer to perform a
-			/// sweep (collects current dictionary words into master dictioanry)
-			/// </summary>
-			public ulong sweep_threshold;
 
 			/// <summary>
 			/// Filename for output dictionary file
@@ -336,20 +150,29 @@ namespace MarkovChain {
 			//	INPUT CSV --(INGESTING) --> RAW STRINGS --(FILTERING)--> LIST OF SENTENCE STRINGS --(DICTIONARIZING)-->
 			//	--> SENTENCE BANK --(MARKOVIZING)--> MARKOV STRUCTURE
 
+			// Metaproces related fields
 			public IngestOptions options;
 			public Stages stage;
 			public Status status;
 
-			// Concurrent queues
+			// Concurrent queues for pipeline
 			// set to private later
-			public ConcurrentQueue<string>	conqueue_csv,
-											conqueue_filtered;
+			public ConcurrentQueue<string> conqueue_csv,
+												conqueue_filtered;
+			public ConcurrentQueue<int[]> conqueue_dictionarized;
 
 			// Flags
-			private bool	flag_csv,
-							flag_filter;
+			private bool flag_csv,
+							flag_filtered,
+							flag_dictionarized;
 
-			// there will be more
+
+			// Dictionarizing thread related constructs
+			private ConcurrentQueue<string> working_master_dictionary;
+			private ConcurrentDictionary<string, int> working_master_word_cloud;
+
+			// Master dictionary bank
+			string[] master_dictionary;
 
 			// Enums
 
@@ -388,7 +211,10 @@ namespace MarkovChain {
 				flag_csv = false;
 
 				conqueue_filtered = new ConcurrentQueue<string>();
-				flag_filter = false;
+				flag_filtered = false;
+
+				conqueue_dictionarized = new ConcurrentQueue<int[]>();
+				flag_dictionarized = false;
 			}
 
 			/// <summary>
@@ -397,12 +223,18 @@ namespace MarkovChain {
 			public void Start() {
 				Thread thread_csv = new Thread(Thread_CSV_Ingest);
 				Thread thread_filter = new Thread(Thread_Filter_Lead);
+				Thread thread_dictionarize = new Thread(Thread_Dictionarize_Lead);
 
 				thread_csv.Start();
 				thread_filter.Start();
+				thread_dictionarize.Start();
 
 				thread_csv.Join();
 				thread_filter.Join();
+				thread_dictionarize.Join();
+
+				// TODO: start rest of threads
+				// TODO: make use of stage variable (maybe it can go in place of flags?)
 			}
 
 			// Threads
@@ -434,11 +266,8 @@ namespace MarkovChain {
 						return;
 					}
 
-					// Console.WriteLine(column_ind);
-
 					// While not end of stream, read off specific column, push onto filter queue
 					while (!parser.EndOfData) {
-						// Console.WriteLine("[CSV]: Ingesting line...");
 
 						fields = parser.ReadFields();
 						string msg = fields[column_ind];
@@ -476,7 +305,7 @@ namespace MarkovChain {
 
 				Console.WriteLine("[Filter Lead]: Workers finished!");
 
-				flag_filter = true;
+				flag_filtered = true;
 			}
 
 			/// <summary>
@@ -488,7 +317,7 @@ namespace MarkovChain {
 				//		take one line and run through filters, then queue onto sentence string queue for dictionarizing
 				//		Finished flag :- CSV Ingest is finished, Filtering queue is empty
 
-				// TODO: Switch to local queues which lead thread fills some day
+				// TODO: Switch to local queues which leading thread fills some day (may improve concurrency)
 
 				Console.WriteLine("[Filter #{0}]: Starting...", id);
 
@@ -523,30 +352,90 @@ namespace MarkovChain {
 			}
 
 			private void Thread_Dictionarize_Lead() {
-				//	Dictionarizing thread(s) --
-				//		Each thread has a local word-cloud (hash table), word-list, and sentence list (queue)
-				//		Dequeue a sentence string from queue, dictionarize to local cloud and word-list, push sentence to local list
-				//		Local cloud and dictionary are ref parameters managed by master
-				//		Finished flag :- Filtering is finished, sentence string queue is empty
-			}
-
-			private void Thread_Dictionarize_Work(int id) {
 				//	Dictionarization master thread --
 				//		Has master word-cloud, word-list, sentence queue for markovization
-				//		For each thread, master has enumerator for its local word-list
-				//		Launches all dictionarizing threads, supplying local clouds and lists
-				//		Sweep --
-				//			Monitors counts of each thread's dictionary counts as a current sum
-				//			Once current sum is past some threshold, or functions are finished,
-				//				Go through each thread's local list (starting at current enumerator)
-				//				process into master dictioanry with master word cloud, increment enumerator until at end of local list
-				//				Once all threads' lists have been processed, dequeue local sentences from each thread and
-				//				enqueue into master sentence queue for markovization
 				//		Finished flag :-	all dictionarization threads are themselves finished,
 				//							their local lists have been processed into master dictioanry,
 				//							master dictionary has been written out,
 				//							all sentences from each local thread have been enqueued--
 				//								--into master sentence queue for markovization
+
+				int concur = 1; // TODO: put this into options someday
+
+				// Master word cloud, master word list
+				working_master_dictionary = new ConcurrentQueue<string>();
+				working_master_word_cloud = new ConcurrentDictionary<string, int>();
+				
+				// Launch threads
+				Task[] workers = new Task[concur];
+
+				Console.WriteLine("[Dictionarize Lead]: Dispatching {0} workers...", concur);
+
+				for(int i = 0; i < concur; ++i) {
+					workers[i] = Task.Run(() => Thread_Dictionarize_Work(i));
+				}
+
+				Task.WaitAll(workers);
+
+				Console.WriteLine("[Dictionarize Lead]: Workers finished!");
+
+				// Transform working master dictionary to final master dictionary
+				master_dictionary = working_master_dictionary.ToArray();
+
+				// Write master dictioanry out
+				// Use streamize writing so as to prevent excess memory usage
+				using (StreamWriter sw = new StreamWriter(options.outfile_dictionary)) {
+					foreach (string word in master_dictionary) {
+						sw.WriteLine(word);
+					}
+				}
+				// TODO: decide on whether to throw out master dictionary (not needed at this point)
+
+				flag_dictionarized = true;
+			}
+
+			private void Thread_Dictionarize_Work(int id) {
+				//	Dictionarizing thread(s) --
+				//		Dequeue a sentence string from preceeding filtered queue
+				//		construct dictionarize w/ master cloud and master list
+				//		push dictionarized sentence to conqueue
+				//		Finished flag :- Filtering is finished, filtered strings queue is empty
+
+				Console.WriteLine("[Dictionarize #{0}]: Starting...", id);
+
+				while (!flag_filtered || !conqueue_filtered.IsEmpty) {
+					List<int> cursent; // current dictionarized sentence
+
+					if (conqueue_filtered.TryDequeue(out string sentence)) {
+						// We have a sentence, dictionarize each word
+						cursent = new List<int>();
+
+						// Dictionarize
+						foreach (string word in sentence.WordList()) {
+							int index;
+							if (!working_master_word_cloud.TryGetValue(word, out index)) {
+								// There is no index for the current word, we must add one
+								index = working_master_dictionary.Count();
+
+								working_master_dictionary.Enqueue(word);
+								working_master_word_cloud[word] = index;
+							} // else, the trygetvalue succeeded, we have an index (no further action necessary)
+
+							cursent.Add(index);
+						}
+
+						// Add "end of sentence" symbol
+						cursent.Add(-1);
+
+						// Enqueue array onto conqueue
+						conqueue_dictionarized.Enqueue(cursent.ToArray());
+					} else {
+						// waiting on queue to be filled
+						Thread.Yield();
+					}
+				}
+
+				Console.WriteLine("[Dictionarize #{0}]: Finished!", id);
 			}
 
 			private void Thread_Markovize_Lead() {
@@ -684,7 +573,6 @@ namespace MarkovChain {
 					Tuple.Create(@"\s+$", ""), // closing spaces
 					Tuple.Create(@"\s{2,}", " ") // excess space (also handles newlines)
 				},
-				sweep_threshold = 50, // TODO: change to like 1024 whenever doing the real thing
 				outfile_dictionary = "test.dict",
 				gram_size = 3,
 				outfile_markov = "test.markov"
