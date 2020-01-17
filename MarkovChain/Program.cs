@@ -8,7 +8,6 @@ using System.Collections.Concurrent;
 using System.Text.RegularExpressions; // regex
 using Microsoft.VisualBasic.FileIO; // For CSV parsing
 using System.IO; // StreamWriter, StreamReader
-using System.Text.Json; // JSON
 
 namespace MarkovChain {
 	public static class Utils {
@@ -18,10 +17,10 @@ namespace MarkovChain {
 		/// <param name="Text"></param>
 		/// <returns></returns>
 		/// <remarks>https://stackoverflow.com/a/1443004</remarks>
-		public static IEnumerable<string> WordList(this string Text) {
+		public static IEnumerable<string> WordList(this string Text, char token = ' ') {
 			int cIndex = 0;
 			int nIndex;
-			while ((nIndex = Text.IndexOf(' ', cIndex + 1)) != -1) {
+			while ((nIndex = Text.IndexOf(token, cIndex + 1)) != -1) {
 				int sIndex = (cIndex == 0 ? 0 : cIndex + 1);
 				yield return Text.Substring(sIndex, nIndex - sIndex);
 				cIndex = nIndex;
@@ -140,6 +139,16 @@ namespace MarkovChain {
 			/// Array of indeces which correspond to words in dictionary
 			/// </summary>
 			public int[] gram;
+
+			public override bool Equals(object obj) {
+				if ((obj == null) || !this.GetType().Equals(obj.GetType())) {
+					return false;
+				} else {
+					NGram o = (NGram)obj;
+					return Enumerable.SequenceEqual(gram, o.gram);
+				}
+			}
+			// TODO: test custom equals function
 		}
 
 		/// <summary>
@@ -235,6 +244,8 @@ namespace MarkovChain {
 
 				// TODO: start rest of threads
 				// TODO: make use of stage variable (maybe it can go in place of flags?)
+				// TODO: fancy output where each thread uses a callback function to write to specific console line
+				// TODO: output in console size of all conqueues so for large data sets it can be seen progressing
 			}
 
 			// Threads
@@ -326,8 +337,6 @@ namespace MarkovChain {
 					if (conqueue_csv.TryDequeue(out string piece)) {
 						// Take piece out, run through filters, enqueue if applicable
 						foreach (var filter in options.regex_filters) {
-							// Console.WriteLine("[Filter #{0}]: Pulling from CSV queue...", id);
-
 							piece = Regex.Replace(piece, filter.Item1, filter.Item2);
 
 							// No bother filtering if string is already empty
@@ -336,8 +345,6 @@ namespace MarkovChain {
 
 						// Skip enqueuing string is empty
 						if (piece == "") continue;
-
-						// Console.WriteLine("[Filter #{0}]: Enqueuing piece...", id);
 
 						conqueue_filtered.Enqueue(piece);
 					} else {
@@ -384,9 +391,11 @@ namespace MarkovChain {
 
 				// Write master dictioanry out
 				// Use streamize writing so as to prevent excess memory usage
-				using (StreamWriter sw = new StreamWriter(options.outfile_dictionary)) {
-					foreach (string word in master_dictionary) {
-						sw.WriteLine(word);
+				using (FileStream fs = new FileStream(options.outfile_dictionary, FileMode.Create))
+				using (StreamWriter sw = new StreamWriter(fs))
+				using (var e = working_master_dictionary.GetEnumerator()) { 
+					while (e.MoveNext()) {
+						sw.WriteLine(e.Current);
 					}
 				}
 				// TODO: decide on whether to throw out master dictionary (not needed at this point)
@@ -471,67 +480,34 @@ namespace MarkovChain {
 			// ---Structures
 			//	SENTENCE BANK -- DICTIOANRY, SENTENCES
 			//	MARKOV STRUCTURE -- DICTIONARY, MARKOV SEGMENTS
-			//	MARKOV SEGMENT -- N-GRAM, N-GRAM SUCCESSOR
+			//	MARKOV SEGMENT -- N-GRAM, N-GRAM SUCCESSORS
 			//	N-GRAM SUCCESSOR -- N-GRAM, ASSOCIATED WEIGHT
 
-			// ---Threads
-			//	CSV Ingest thread --
-			//		Reads relevant column from file and pushes into queue for filtering
-			//		Finished flag :- End of CSV stream
-			//
-			//	Filtering thread(s) --
-			//		until CSV Ingest is finished (known by flag),
-			//		take one line and run through filters, then queue onto sentence string queue for dictionarizing
-			//		Finished flag :- CSV Ingest is finished, Filtering queue is empty
-			// 
-			//	Filtering master thread --
-			//		Launches all filtering threads
-			//		Manages finished flag for filtering
-			//		Finished flag :- all filtering threads are finished
-			//
-			//	Dictionarizing thread(s) --
-			//		Each thread has a local word-cloud (hash table), word-list, and sentence list (queue)
-			//		Dequeue a sentence string from queue, dictionarize to local cloud and word-list, push sentence to local list
-			//		Local cloud and dictionary are ref parameters managed by master
-			//		Finished flag :- Filtering is finished, sentence string queue is empty
-			//
-			//	Dictionarization master thread --
-			//		Has master word-cloud, word-list, sentence queue for markovization
-			//		For each thread, master has enumerator for its local word-list
-			//		Launches all dictionarizing threads, supplying local clouds and lists
-			//		Sweep --
-			//			Monitors counts of each thread's dictionary counts as a current sum
-			//			Once current sum is past some threshold, or functions are finished,
-			//				Go through each thread's local list (starting at current enumerator)
-			//				process into master dictioanry with master word cloud, increment enumerator until at end of local list
-			//				Once all threads' lists have been processed, dequeue local sentences from each thread and
-			//				enqueue into master sentence queue for markovization
-			//		Finished flag :-	all dictionarization threads are themselves finished,
-			//							their local lists have been processed into master dictioanry,
-			//							master dictionary has been written out,
-			//							all sentences from each local thread have been enqueued--
-			//								--into master sentence queue for markovization
-			//
 			//	Markovizing thread(s) --
 			//		Takes a dictionarized sentence off queue if available
 			//		Markovizing sentence --
 			//			Starting index at 1
 			//			Continue flag set to true
-			//			Declare current_gram
+			//			Declare current gram, new gram
 			//			Grab first gram:
-			//			If sentence size is lte gram_size
-			//				Ngram size is sentence size, grab available words, process and set continue flag to false
-			//			Otherwsie grab gram_size, process into master dictionary, set as current_gram
+			//			If sentence size is lte gram size
+			//				current gram size is sentence size, grab available words, process into current gram
+			//				set continue flag to false
+			//			Otherwsie grab gram size, ensure it's unique (otherwise get the first occurance), set as current gram
 			//			Put this first gram in seed list, if not there already
 			//			Loop until continue flag is false --
-			//				Grab new gram of gram_size in overlapping fashion (from index to index+3)
+			//				Grab new gram of gram size in overlapping fashion (from index to index+gram size)
+			//				Ensure new gram is unique (otherwise grab first occurance)
 			//				If last word is -1, gram is finished, set continue to false
-			//				TODO: CONTINUE!!!
-			//
-			//
+			//				In current grams successor's, incremeent count pointed to by new gram
+			//				If no count exists (new successor), set count pointed to by new gram to 0
+			//				Set current gram = new gram
+			//				Increment index
+			//		Finished flag :- dictionarized conqueue is empty, dictionarization flag is true
 			//
 			//	Markovizing master thread -- 
-			//		Has master unique ngram dictionary, maps ngram hash code to first-occurance ngram (hope to GOD no collisions)
+			//		TODO: evaluate if unqiue dictionary is necessary with new equals function for NGrams
+			//		Has master unique ngram dictionary, maps ngram hash code to first-occurance ngram
 			//			Consider simple function to check for equality
 			//		Has master starter ngram dictionary, maps ngram to boolean true
 			//		Has successor dictionary which maps an ngram to a counter dictionary, prototype to markovstructure struct
