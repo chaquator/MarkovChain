@@ -173,8 +173,9 @@ namespace MarkovChain {
 
 				// TODO: start rest of threads
 				// TODO: make use of stage variable (maybe it can go in place of flags?)
-				// TODO:	fancy output where each thread uses a callback function to write to specific console line
-				//			-	output in console size of all conqueues so for large data sets it can be seen progressing
+				// TODO: fancy output where each thread uses a callback function to write to specific console line
+				//			-output in console size of all conqueues so for large data sets it can be seen progressing
+				// TODO: consider lofting out each stage (and threads) into its own class for variable seperation
 			}
 
 			// Threads

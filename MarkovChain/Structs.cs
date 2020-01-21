@@ -47,24 +47,28 @@ namespace MarkovChain {
 				// Not gonna need to write out dictioanry, only used for creating
 			}
 
+			// TODO: summary
 			// TODO: TEST
 			public MarkovStructure(string[] dic, ConcurrentQueue<NGram> grms,
-								ConcurrentDictionary<int, ConcurrentDictionary<int, int>> prototype) {
+								ConcurrentDictionary<int, ConcurrentDictionary<int, int>> prototype,
+								ConcurrentBag<int> sds) {
 				// Pass along master dictionary
 				dictionary = dic;
 
-				// Populate master grams table and chain links
+				// Populate master grams table 
 				grams = grms.ToArray();
 
-				// Populate list of seeds
+				// Populate chain links
 				chain_links = new MarkovSegment[grams.Length];
 				int ind = 0;
 				foreach (var link in prototype) {
 					// key is index of current ngram
 					// value is map<index, weight> -- all successors of given index
-					chain_links[ind] = new MarkovSegment(link);
-					++ind;
+					chain_links[ind++] = new MarkovSegment(link);
 				}
+
+				// Populate list of seeds
+				seeds = sds.ToArray();
 			}
 		}
 
@@ -84,6 +88,7 @@ namespace MarkovChain {
 			/// </summary>
 			public NGramSuccessor[] successors { get; }
 
+			// TODO: summary
 			public MarkovSegment(KeyValuePair<int, ConcurrentDictionary<int, int>> prototype) {
 				// key is index of current ngram
 				// value is map<index of successor, associated weight>
@@ -136,12 +141,15 @@ namespace MarkovChain {
 					return false;
 				} else {
 					NGram o = (NGram)obj;
+
+					// Compare by array value, not by reference or whatever C# does by default
 					return Enumerable.SequenceEqual(gram, o.gram);
 				}
 			}
 
 			public override int GetHashCode() {
 				unchecked {
+					// I need to learn to LINQ this someday
 					int hash = (int)2509506049;
 					int LARGEPRIME = (int)4134118063;
 					foreach (var field in gram) {
