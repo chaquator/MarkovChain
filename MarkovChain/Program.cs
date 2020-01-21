@@ -9,6 +9,8 @@ using System.Text.RegularExpressions; // regex
 using Microsoft.VisualBasic.FileIO; // For CSV parsing
 using System.IO; // StreamWriter, StreamReader
 
+using MarkovChain.Structs;
+
 namespace MarkovChain {
 	public static class Utils {
 		/// <summary>
@@ -74,84 +76,6 @@ namespace MarkovChain {
 		}
 
 		/// <summary>
-		/// Master MarkovStructure, has associated dictioanry, array of links,
-		/// and an array of indeces to links array which are all "starers"
-		/// </summary>
-		public struct MarkovStructure {
-			/// <summary>
-			/// Dictionary is an array of strings, where each index is used as the reference in the n-grams
-			/// </summary>
-			public string[] dictionary;
-
-			/// <summary>
-			/// Grams is an array of all possible unqiue grams on their own
-			/// </summary>
-			public NGram[] grams;
-
-			/// <summary>
-			/// Array of all unique ngrams, each with their successors
-			/// </summary>
-			public MarkovSegment[] chain_links;
-
-			/// <summary>
-			/// Array of indeces which point to chain links that happen to be starts of sentences
-			/// </summary>
-			public int[] seeds;
-		}
-
-		/// <summary>
-		/// Single segment in overall MarkovStructure, used in tandem with master
-		/// array to assemble sentence
-		/// </summary>
-		public struct MarkovSegment {
-			/// <summary>
-			/// Index which points to associated ngram in master
-			/// markov structure
-			/// </summary>
-			public int current_ngram;
-
-			/// <summary>
-			/// Array of ngrams which succeed given ngram, along with their relatively frequency
-			/// </summary>
-			public NGramSuccessor[] successors;
-		}
-
-		/// <summary>
-		/// Successor struct, couples ngram
-		/// </summary>
-		public struct NGramSuccessor {
-			/// <summary>
-			/// Index points to associated MarkovStructure chain_links index
-			/// </summary>
-			public int successor_index;
-
-			/// <summary>
-			/// Weight whos magnitude reflects relative frequency of successor
-			/// </summary>
-			public int weight;
-		}
-
-		/// <summary>
-		/// Individual ngram
-		/// </summary>
-		public struct NGram {
-			/// <summary>
-			/// Array of indeces which correspond to words in dictionary
-			/// </summary>
-			public int[] gram;
-
-			public override bool Equals(object obj) {
-				if ((obj == null) || !this.GetType().Equals(obj.GetType())) {
-					return false;
-				} else {
-					NGram o = (NGram)obj;
-					return Enumerable.SequenceEqual(gram, o.gram);
-				}
-			}
-			// TODO: test custom equals function
-		}
-
-		/// <summary>
 		/// Main object to facilitate concurrent pipelined ingesting
 		/// </summary>
 		public class Pipeline {
@@ -164,27 +88,32 @@ namespace MarkovChain {
 			public Stages stage;
 			public Status status;
 
+			// Resultant values to grab
+			public MarkovStructure finished_markovstruct;
+
 			// Concurrent queues for pipeline
 			// set to private later
-			public ConcurrentQueue<string> conqueue_csv,
-												conqueue_filtered;
-			public ConcurrentQueue<int[]> conqueue_dictionarized;
+			public ConcurrentQueue<string>	conqueue_csv,
+											conqueue_filtered;
+
+			public ConcurrentQueue<int[]>	conqueue_dictionarized;
 
 			// Flags
-			private bool flag_csv,
+			private bool	flag_csv,
 							flag_filtered,
 							flag_dictionarized;
 
 
 			// Dictionarizing thread related constructs
-			private ConcurrentQueue<string> working_master_dictionary;
-			private ConcurrentDictionary<string, int> working_master_word_cloud;
+			private ConcurrentQueue<string>				working_master_dictionary;
+			private ConcurrentDictionary<string, int>	working_master_word_cloud;
 
-			// Master dictionary bank
-			string[] master_dictionary;
+			// Markovizing thread related constructs
+			private ConcurrentDictionary<NGram, bool>	working_master_seeds;
 
 			// Enums
 
+			// TODO: evaluate if this is necessary
 			/// <summary>
 			/// Enum for different stages of entire ingesting pipeline being finished
 			/// </summary>
@@ -244,8 +173,8 @@ namespace MarkovChain {
 
 				// TODO: start rest of threads
 				// TODO: make use of stage variable (maybe it can go in place of flags?)
-				// TODO: fancy output where each thread uses a callback function to write to specific console line
-				// TODO: output in console size of all conqueues so for large data sets it can be seen progressing
+				// TODO:	fancy output where each thread uses a callback function to write to specific console line
+				//			-	output in console size of all conqueues so for large data sets it can be seen progressing
 			}
 
 			// Threads
@@ -328,7 +257,7 @@ namespace MarkovChain {
 				//		take one line and run through filters, then queue onto sentence string queue for dictionarizing
 				//		Finished flag :- CSV Ingest is finished, Filtering queue is empty
 
-				// TODO: Switch to local queues which leading thread fills some day (may improve concurrency)
+				// TODO: consider switching to local queues which leading thread populates some day (may improve concurrency?)
 
 				Console.WriteLine("[Filter #{0}]: Starting...", id);
 
@@ -372,13 +301,13 @@ namespace MarkovChain {
 				// Master word cloud, master word list
 				working_master_dictionary = new ConcurrentQueue<string>();
 				working_master_word_cloud = new ConcurrentDictionary<string, int>();
-				
+
 				// Launch threads
 				Task[] workers = new Task[concur];
 
 				Console.WriteLine("[Dictionarize Lead]: Dispatching {0} workers...", concur);
 
-				for(int i = 0; i < concur; ++i) {
+				for (int i = 0; i < concur; ++i) {
 					workers[i] = Task.Run(() => Thread_Dictionarize_Work(i));
 				}
 
@@ -387,18 +316,18 @@ namespace MarkovChain {
 				Console.WriteLine("[Dictionarize Lead]: Workers finished!");
 
 				// Transform working master dictionary to final master dictionary
-				master_dictionary = working_master_dictionary.ToArray();
-
+				// TODO: decide whether or not to throw out (is it better to keep the "working" than to keep the master_dictionary for when the final markovstructure is created)
+				// master_dictionary = working_master_dictionary.ToArray();
+				
 				// Write master dictioanry out
 				// Use streamize writing so as to prevent excess memory usage
 				using (FileStream fs = new FileStream(options.outfile_dictionary, FileMode.Create))
 				using (StreamWriter sw = new StreamWriter(fs))
-				using (var e = working_master_dictionary.GetEnumerator()) { 
+				using (var e = working_master_dictionary.GetEnumerator()) {
 					while (e.MoveNext()) {
 						sw.WriteLine(e.Current);
 					}
 				}
-				// TODO: decide on whether to throw out master dictionary (not needed at this point)
 
 				flag_dictionarized = true;
 			}
@@ -448,11 +377,37 @@ namespace MarkovChain {
 			}
 
 			private void Thread_Markovize_Lead() {
-
+				//	Markovizing master thread -- 
+				//		Has master ngrams collection, concurrentqueue of ngrams which will be referred by indeces in other vars
+				//		Has master ngram seed collection, concurrent bag of integers which point to indeces
+				//		Has successor dictionary which maps an index to a counting dictionary -- prototype to markovstructure struct
+				//			Counter dictionary maps index to count -- prototype to ngram-successor struct
+				//		Launches all markovizing threads
+				//		Whenever all markovization threads are finished-- construct MarkovStructure with 
 			}
 
 			private void Thread_Markovize_Work(int id) {
-
+				// TODO: rework to fit with current structure
+				//	Markovizing thread(s) --
+				//		Takes a dictionarized sentence off queue if available
+				//		Markovizing sentence --
+				//			Starting index at 1
+				//			Continue flag set to true
+				//			Declare current gram, new gram
+				//			Grab first gram:
+				//			If sentence size is lte gram size
+				//				current gram size is sentence size, grab available words, process into current gram
+				//				set continue flag to false
+				//			Otherwsie grab gram size, set as current gram
+				//			Put this first gram in seed list, if not there already
+				//			Loop until continue flag is false --
+				//				Grab new gram of gram size in overlapping fashion (from index to index+gram size)
+				//				If last word is -1, gram is finished, set continue to false
+				//				In current grams successor's, incremeent count pointed to by new gram
+				//				If no count exists (new successor), set count pointed to by new gram to 0
+				//				Set current gram = new gram
+				//				Increment index
+				//		Finished flag :- dictionarized conqueue is empty, dictionarization flag is true
 			}
 
 			/// <summary>
@@ -472,7 +427,7 @@ namespace MarkovChain {
 		/// Master ingesting function, pipelined to increase throughput
 		/// </summary>
 		/// <param name="options">Options struct for ingesting</param>
-		public static bool IngestPipelined(ref IngestOptions options, out Pipeline.Status status) {
+		public static bool IngestPipelined(ref IngestOptions options, out Pipeline.Status status, out MarkovStructure markovstruct) {
 			// ---Pipeline
 			//	INPUT CSV --(INGESTING) --> RAW STRINGS --(FILTERING)--> LIST OF SENTENCE STRINGS --(DICTIONARIZING)-->
 			//	--> SENTENCE BANK --(MARKOVIZING)--> MARKOV STRUCTURE
@@ -483,57 +438,18 @@ namespace MarkovChain {
 			//	MARKOV SEGMENT -- N-GRAM, N-GRAM SUCCESSORS
 			//	N-GRAM SUCCESSOR -- N-GRAM, ASSOCIATED WEIGHT
 
-			//	Markovizing thread(s) --
-			//		Takes a dictionarized sentence off queue if available
-			//		Markovizing sentence --
-			//			Starting index at 1
-			//			Continue flag set to true
-			//			Declare current gram, new gram
-			//			Grab first gram:
-			//			If sentence size is lte gram size
-			//				current gram size is sentence size, grab available words, process into current gram
-			//				set continue flag to false
-			//			Otherwsie grab gram size, ensure it's unique (otherwise get the first occurance), set as current gram
-			//			Put this first gram in seed list, if not there already
-			//			Loop until continue flag is false --
-			//				Grab new gram of gram size in overlapping fashion (from index to index+gram size)
-			//				Ensure new gram is unique (otherwise grab first occurance)
-			//				If last word is -1, gram is finished, set continue to false
-			//				In current grams successor's, incremeent count pointed to by new gram
-			//				If no count exists (new successor), set count pointed to by new gram to 0
-			//				Set current gram = new gram
-			//				Increment index
-			//		Finished flag :- dictionarized conqueue is empty, dictionarization flag is true
-			//
-			//	Markovizing master thread -- 
-			//		TODO: evaluate if unqiue dictionary is necessary with new equals function for NGrams
-			//		Has master unique ngram dictionary, maps ngram hash code to first-occurance ngram
-			//			Consider simple function to check for equality
-			//		Has master starter ngram dictionary, maps ngram to boolean true
-			//		Has successor dictionary which maps an ngram to a counter dictionary, prototype to markovstructure struct
-			//			Counter dictionary maps ngram to count, prototype to ngram-successor struct
-			//		Launches all markovizing threads
-			//		Whenever all markovization threads are finished--
-			//			Create empty markovstructure, load dictionary
-			//			enumerate through successor dictionary --
-			//				TODO: CONTINUE!!!
-			//			
-
-			//	MARKOV STRUCTURE -- DICTIONARY, MARKOV SEGMENTS
-			//	MARKOV SEGMENT -- N-GRAM, N-GRAM SUCCESSOR
-			//	N-GRAM SUCCESSOR -- N-GRAM, ASSOCIATED WEIGHT
-
 			Pipeline pipe = new Pipeline(options);
 			pipe.Start();
 			status = pipe.status;
+
+			markovstruct = pipe.finished_markovstruct;
+
 			return status == Pipeline.Status.ALL_GOOD;
 		}
 	}
 
 	class Program {
 		static void Main() {
-			// TODO: proper options stuff
-
 			Ingesting.IngestOptions opts = new Ingesting.IngestOptions {
 				infile_csv = "m.csv",
 				csv_column = "Content",
@@ -553,7 +469,17 @@ namespace MarkovChain {
 				gram_size = 3,
 				outfile_markov = "test.markov"
 			};
-			if (!Ingesting.IngestPipelined(ref opts, out Ingesting.Pipeline.Status status)) Console.WriteLine("Some sort of error occured.");
+			if (!Ingesting.IngestPipelined(ref opts, out Ingesting.Pipeline.Status status,
+											out MarkovStructure resultant_mkvstrct)) {
+				Console.WriteLine("Some sort of error occured.");
+			}
+			
+			/*	TODO: implement proper options
+			 *		-	Maybe ingest unique regex filters, can be some sort of csv
+			 *		-	Maybe split runtime functionality into ingest and create from file
+			 *		-		Maybe ingest has a flag to create from ingested
+			 *		-	For creating, read from stdin or from passed "-input" parameter to produce in some sed shell like quality
+			 */
 		}
 	}
 }
