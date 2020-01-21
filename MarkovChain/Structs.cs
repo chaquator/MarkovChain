@@ -149,13 +149,19 @@ namespace MarkovChain {
 
 			public override int GetHashCode() {
 				unchecked {
-					// I need to learn to LINQ this someday
-					int hash = (int)2509506049;
+					int SEED = (int)2509506049;
 					int LARGEPRIME = (int)4134118063;
+					// I need to learn to LINQ this someday
+					/*
+					int hash = SEED;
+					
 					foreach (var field in gram) {
 						hash = LARGEPRIME * hash ^ field.GetHashCode();
 					}
 					return hash;
+					*/
+					return gram.Aggregate(SEED, (hash, field) => (LARGEPRIME * hash ^ field.GetHashCode()));
+					// TODO: test if this LINQ works
 				}
 			}
 		}
