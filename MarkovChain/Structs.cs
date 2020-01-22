@@ -51,7 +51,7 @@ namespace MarkovChain {
 			// TODO: TEST
 			public MarkovStructure(string[] dic, ConcurrentQueue<NGram> grms,
 								ConcurrentDictionary<int, ConcurrentDictionary<int, int>> prototype,
-								ConcurrentBag<int> sds) {
+								ConcurrentDictionary<int, bool> sds) {
 				// Pass along master dictionary
 				dictionary = dic;
 
@@ -68,7 +68,7 @@ namespace MarkovChain {
 				}
 
 				// Populate list of seeds
-				seeds = sds.ToArray();
+				seeds = sds.Keys.ToArray();
 			}
 		}
 
@@ -139,7 +139,8 @@ namespace MarkovChain {
 			public override bool Equals(object obj) {
 				if ((obj == null) || !this.GetType().Equals(obj.GetType())) {
 					return false;
-				} else {
+				}
+				else {
 					NGram o = (NGram)obj;
 
 					// Compare by array value, not by reference or whatever C# does by default
@@ -151,17 +152,14 @@ namespace MarkovChain {
 				unchecked {
 					int SEED = (int)2509506049;
 					int LARGEPRIME = (int)4134118063;
-					// I need to learn to LINQ this someday
-					/*
-					int hash = SEED;
-					
-					foreach (var field in gram) {
-						hash = LARGEPRIME * hash ^ field.GetHashCode();
-					}
-					return hash;
+					/* FOLLOWING LINQ IS EQUIVALENT TO
+						int hash = SEED;
+						foreach (var field in gram) {
+							hash = LARGEPRIME * hash ^ field.GetHashCode();
+						}
+						return hash;
 					*/
 					return gram.Aggregate(SEED, (hash, field) => (LARGEPRIME * hash ^ field.GetHashCode()));
-					// TODO: test if this LINQ works
 				}
 			}
 		}

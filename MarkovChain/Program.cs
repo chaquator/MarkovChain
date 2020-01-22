@@ -67,7 +67,8 @@ namespace MarkovChain {
 			/// <summary>
 			/// Unsigned long representing size of n-gram for a markov chain segment
 			/// </summary>
-			public ulong gram_size;
+			// TODO: change summary, implement precondition check of gram_size > 0 somewhere
+			public int gram_size;
 
 			/// <summary>
 			/// Filename for output markov file
@@ -93,23 +94,29 @@ namespace MarkovChain {
 
 			// Concurrent queues for pipeline
 			// set to private later
-			public ConcurrentQueue<string>	conqueue_csv,
+			public ConcurrentQueue<string> conqueue_csv,
 											conqueue_filtered;
 
-			public ConcurrentQueue<int[]>	conqueue_dictionarized;
+			public ConcurrentQueue<int[]> conqueue_dictionarized;
 
 			// Flags
-			private bool	flag_csv,
+			private bool flag_csv,
 							flag_filtered,
 							flag_dictionarized;
 
 
 			// Dictionarizing thread related constructs
-			private ConcurrentQueue<string>				working_master_dictionary;
-			private ConcurrentDictionary<string, int>	working_master_word_cloud;
+			private ConcurrentQueue<string> working_master_dictionary;
+			private ConcurrentDictionary<string, int> working_master_word_cloud;
 
 			// Markovizing thread related constructs
-			private ConcurrentDictionary<NGram, bool>	working_master_seeds;
+			private ConcurrentDictionary<NGram, int> working_master_ngram_cloud;
+
+			private ConcurrentQueue<NGram> working_master_ngrams;
+			private ConcurrentDictionary<int, bool> working_master_seeds;
+			private ConcurrentDictionary<int,
+						ConcurrentDictionary<int, int>> working_master_successors;
+
 
 			// Enums
 
@@ -277,7 +284,8 @@ namespace MarkovChain {
 						if (piece == "") continue;
 
 						conqueue_filtered.Enqueue(piece);
-					} else {
+					}
+					else {
 						// me guess is csv finished flag is still false, queue is empty waiting to be filled
 						// very slim chance flag is true, and there was a small race condition between
 						// entering the while and pulling
@@ -319,7 +327,7 @@ namespace MarkovChain {
 				// Transform working master dictionary to final master dictionary
 				// TODO: decide whether or not to throw out (is it better to keep the "working" than to keep the master_dictionary for when the final markovstructure is created)
 				// master_dictionary = working_master_dictionary.ToArray();
-				
+
 				// Write master dictioanry out
 				// Use streamize writing so as to prevent excess memory usage
 				using (FileStream fs = new FileStream(options.outfile_dictionary, FileMode.Create))
@@ -368,7 +376,8 @@ namespace MarkovChain {
 
 						// Enqueue array onto conqueue
 						conqueue_dictionarized.Enqueue(cursent.ToArray());
-					} else {
+					}
+					else {
 						// waiting on queue to be filled
 						Thread.Yield();
 					}
@@ -409,6 +418,52 @@ namespace MarkovChain {
 				//				Set current gram = new gram
 				//				Increment index
 				//		Finished flag :- dictionarized conqueue is empty, dictionarization flag is true
+
+				while (!conqueue_dictionarized.IsEmpty || !flag_dictionarized) {
+					int pos, // position along sentence
+						index; // index of current ngram
+					bool cont; // continue
+
+					int[] gram_proto = new int[options.gram_size];
+
+					NGram curgram, newgram;
+
+					// ConcurrentDictionary<>
+
+					// TODO: finish, loft things out into functions to make it easier
+					if (conqueue_dictionarized.TryDequeue(out int[] cursent)) {
+						pos = 1;
+						cont = true;
+
+						// Grab firs gram
+						if(cursent.Length <= options.gram_size) {
+							// Sentence is one gram which may or may not be short
+							curgram = new NGram(cursent);
+						}
+						else {
+							// Sentence is long enough for multiple grams
+							Array.Copy(cursent, 0, gram_proto, 0, options.gram_size);
+							curgram = new NGram(gram_proto);
+						}
+
+						// Get corresponding index of first
+						if(!working_master_ngram_cloud.TryGetValue(curgram, out index)) {
+							// Gram is unique as of yet
+							index = working_master_ngrams.Count();
+
+							working_master_ngrams.Enqueue(curgram);
+							working_master_ngram_cloud[curgram] = index;
+						}
+
+						if(working_master_seeds.ContainsKey(index)) {
+
+						}
+
+					}
+					else {
+						Thread.Yield();
+					}
+				}
 			}
 
 			/// <summary>
@@ -474,7 +529,7 @@ namespace MarkovChain {
 											out MarkovStructure resultant_mkvstrct)) {
 				Console.WriteLine("Some sort of error occured.");
 			}
-			
+
 			/*	TODO: implement proper options
 			 *		-	Maybe ingest unique regex filters, can be some sort of csv
 			 *		-	Maybe split runtime functionality into ingest and create from file
