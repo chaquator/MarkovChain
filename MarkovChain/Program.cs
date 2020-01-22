@@ -424,15 +424,13 @@ namespace MarkovChain {
 						index; // index of current ngram
 					bool cont; // continue
 
-					int[] gram_proto = new int[options.gram_size];
-
 					NGram curgram, newgram;
 
 					// ConcurrentDictionary<>
 
 					// TODO: finish, loft things out into functions to make it easier
 					if (conqueue_dictionarized.TryDequeue(out int[] cursent)) {
-						pos = 1;
+						pos = 0;
 						cont = true;
 
 						// Grab firs gram
@@ -441,26 +439,19 @@ namespace MarkovChain {
 							curgram = new NGram(cursent);
 						}
 						else {
-							// Sentence is long enough for multiple grams
-							Array.Copy(cursent, 0, gram_proto, 0, options.gram_size);
-							curgram = new NGram(gram_proto);
+							// Otherwise it's not
+							curgram = Markovization_Ingest_Gram(cursent, pos++);
 						}
 
-						// Get corresponding index of first
-						if(!working_master_ngram_cloud.TryGetValue(curgram, out index)) {
-							// Gram is unique as of yet
-							index = working_master_ngrams.Count();
+						index = Markovization_Register_Gram(ref curgram);
 
-							working_master_ngrams.Enqueue(curgram);
-							working_master_ngram_cloud[curgram] = index;
+						// Register first gram as a seed
+						if(!working_master_seeds.ContainsKey(index)) {
+							working_master_seeds[index] = true;
 						}
 
-						if(working_master_seeds.ContainsKey(index)) {
-
-						}
-
-					}
-					else {
+						// TODO: Do the rest of the grams
+					} else {
 						Thread.Yield();
 					}
 				}
@@ -476,6 +467,41 @@ namespace MarkovChain {
 						Console.WriteLine("Column {0} not found in {1}!", options.csv_column, options.infile_csv);
 						break;
 				}
+			}
+
+			/// <summary>
+			/// Ingests NGram
+			/// </summary>
+			/// <param name="cursent"></param>
+			/// <param name="position"></param>
+			/// <param name="proto_gram"></param>
+			/// <returns></returns>
+			private NGram Markovization_Ingest_Gram(int[] cursent, int position) {
+				int[] proto_gram = new int[options.gram_size];
+				Array.Copy(cursent, position, proto_gram, 0, options.gram_size);
+				return new NGram(proto_gram);
+			}
+
+			/// <summary>
+			/// Add NGram to master structure, return its index
+			/// </summary>
+			/// <param name="gram"></param>
+			/// <returns></returns>
+			private int Markovization_Register_Gram(ref NGram gram) {
+				int index;
+				// Get corresponding index of first
+				if (!working_master_ngram_cloud.TryGetValue(gram, out index)) {
+					// Gram is unique as of yet
+					index = working_master_ngrams.Count();
+
+					// Put in list, get index
+					working_master_ngrams.Enqueue(gram);
+					working_master_ngram_cloud[gram] = index;
+
+					// Create new successors dictioanry
+					working_master_successors[index] = new ConcurrentDictionary<int, int>();
+				}
+				return index;
 			}
 		}
 
