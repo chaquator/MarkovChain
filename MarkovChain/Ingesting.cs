@@ -417,7 +417,6 @@ namespace MarkovChain {
 			}
 
 			private void Thread_Markovize_Work(int id) {
-				// TODO: rework to fit with current structure
 				//	Markovizing thread(s) --
 				//		Takes a dictionarized sentence off queue if available
 				//		Markovizing sentence --
@@ -452,7 +451,8 @@ namespace MarkovChain {
 							// Sentence is one gram which may or may not be short
 							curgram = new NGram(cursent);
 
-							Markovization_Register_Gram(ref curgram);
+							// Register, set as seed
+							working_master_seeds[Markovization_Register_Gram(ref curgram)] = true;
 
 							continue;
 						}
@@ -460,6 +460,9 @@ namespace MarkovChain {
 						// Otherwise it's not
 						curgram = Markovization_Ingest_Gram(cursent, pos++);
 						index = Markovization_Register_Gram(ref curgram);
+
+						// Register as seed
+						working_master_seeds[index] = true;
 
 						//	In cases where sentence is made of more than 1 gram
 						//		visualization, length is 6, gram-size is 3:
@@ -530,11 +533,6 @@ namespace MarkovChain {
 
 					// Create new successors dictioanry
 					working_master_successors[index] = new ConcurrentDictionary<int, int>();
-				}
-
-				// Register first gram as a seed
-				if (!working_master_seeds.ContainsKey(index)) {
-					working_master_seeds[index] = true;
 				}
 
 				return index;
