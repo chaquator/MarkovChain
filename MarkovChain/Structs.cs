@@ -50,6 +50,11 @@ namespace MarkovChain {
 				// Not gonna need to write out dictioanry, only used for creating
 			}
 
+			// TODO: write
+			public static MarkovStructure ReadFile(string filename) {
+				return null;
+			}
+
 			/// <summary>
 			/// Constructor for a markovstructure, only to be used by pipeline
 			/// </summary>

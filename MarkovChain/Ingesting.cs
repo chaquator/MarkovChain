@@ -444,9 +444,6 @@ namespace MarkovChain {
 					NGram curgram,
 						  newgram;
 
-					// ConcurrentDictionary<>
-
-					// TODO: finish, loft things out into functions to make it easier
 					if (conqueue_dictionarized.TryDequeue(out int[] cursent)) {
 						pos = 0;
 
@@ -455,20 +452,14 @@ namespace MarkovChain {
 							// Sentence is one gram which may or may not be short
 							curgram = new NGram(cursent);
 
-							// bodge fix 
 							Markovization_Register_Gram(ref curgram);
+
 							continue;
-						} else {
-							// Otherwise it's not
-							curgram = Markovization_Ingest_Gram(cursent, pos++);
 						}
 
+						// Otherwise it's not
+						curgram = Markovization_Ingest_Gram(cursent, pos++);
 						index = Markovization_Register_Gram(ref curgram);
-
-						// Register first gram as a seed
-						if (!working_master_seeds.ContainsKey(index)) {
-							working_master_seeds[index] = true;
-						}
 
 						//	In cases where sentence is made of more than 1 gram
 						//		visualization, length is 6, gram-size is 3:
@@ -540,6 +531,12 @@ namespace MarkovChain {
 					// Create new successors dictioanry
 					working_master_successors[index] = new ConcurrentDictionary<int, int>();
 				}
+
+				// Register first gram as a seed
+				if (!working_master_seeds.ContainsKey(index)) {
+					working_master_seeds[index] = true;
+				}
+
 				return index;
 			}
 		}
