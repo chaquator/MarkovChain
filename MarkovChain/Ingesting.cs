@@ -57,8 +57,6 @@ namespace MarkovChain {
 			public Tuple<string, string>[] regex_filters;
 
 			/// <summary>
-			/// Filename for output dictionary file
-			/// <summary>
 			/// Unsigned long representing size of n-gram for a markov chain segment
 			/// </summary>
 			// TODO: change summary, implement precondition check of gram_size > 0 somewhere
