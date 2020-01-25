@@ -58,9 +58,6 @@ namespace MarkovChain {
 
 			/// <summary>
 			/// Filename for output dictionary file
-			/// </summary>
-			public string outfile_dictionary;
-
 			/// <summary>
 			/// Unsigned long representing size of n-gram for a markov chain segment
 			/// </summary>
@@ -329,16 +326,6 @@ namespace MarkovChain {
 
 				// Transform working master dictionary to final master dictionary
 				master_dictionary = working_master_dictionary.ToArray();
-
-				// Write master dictioanry out
-				// Use streamize writing so as to prevent excess memory usage
-				using (FileStream fs = new FileStream(options.outfile_dictionary, FileMode.Create))
-				using (StreamWriter sw = new StreamWriter(fs))
-				using (var e = working_master_dictionary.GetEnumerator()) {
-					while (e.MoveNext()) {
-						sw.WriteLine(e.Current);
-					}
-				}
 
 				flag_dictionarized = true;
 			}

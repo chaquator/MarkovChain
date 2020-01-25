@@ -18,7 +18,6 @@ namespace MarkovChain {
 					Tuple.Create(@"\s+$", ""), // closing spaces
 					Tuple.Create(@"\s{2,}", " ") // excess space (also handles newlines)
 				},
-				outfile_dictionary = "test.dict",
 				gram_size = 2,
 				outfile_markov = "test.markov"
 			};
