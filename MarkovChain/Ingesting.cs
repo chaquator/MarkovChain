@@ -29,6 +29,55 @@ namespace MarkovChain {
 			}
 			yield return Text.Substring(cIndex + 1);
 		}
+
+		public static int Partition<T>(T[] arr, int left, int right) where T : IComparable<T> {
+			// Pick starting pivot (middle prevents stack overflow for sorted array)
+			int med = left + (right - left) / 2;
+			int l = left;
+
+			// Swap with left
+			T pivot = arr[med];
+			arr[med] = arr[left];
+			arr[left] = pivot;
+
+			++left;
+			T temp;
+			while(left <= right) {
+				// Move fingers
+				while (arr[left].CompareTo(pivot) < 0) ++left;
+				while (arr[right].CompareTo(pivot) > 0) --right;
+
+				// Swap
+				if(left <= right) {
+					temp = arr[left];
+					arr[left] = arr[right];
+					arr[right] = temp;
+				}
+			}
+
+			// TODO: is right always the correct answer??
+			// Move pivot
+			arr[l] = arr[right];
+			arr[right] = pivot;
+
+			return right;
+		}
+
+		// https://web.archive.org/web/20120201062954/http://www.darkside.co.za/archive/2008/03/14/microsoft-parallel-extensions-.net-framework.aspx
+		public static void QuicksortParallelOptimised<T>(T[] arr, int left, int right) where T : IComparable<T> {
+			const int SEQUENTIAL_THRESHOLD = 2048;
+
+			if (right > left) {
+				if (right - left < SEQUENTIAL_THRESHOLD) {
+					Array.Sort(arr, left, right - left);
+				} else {
+					int pivot = Partition(arr, left, right);
+					Parallel.Invoke(
+						() => QuicksortParallelOptimised(arr, left, pivot - 1),
+						() => QuicksortParallelOptimised(arr, pivot + 1, right));
+				}
+			}
+		}
 	}
 
 	/// <summary>

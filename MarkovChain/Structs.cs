@@ -108,6 +108,9 @@ namespace MarkovChain {
 						chain_links[ind] = new MarkovSegment(ind, prototype_chainlinks[ind]);
 					}
 				);
+				//for (int ind = 0; ind < grams.Length; ++ind) {
+				//	chain_links[ind] = new MarkovSegment(ind, prototype_chainlinks[ind]);
+				//}
 
 				// Populate list of seeds
 				seeds = sds.Keys.ToArray();
@@ -125,19 +128,32 @@ namespace MarkovChain {
 		/// Single segment in overall MarkovStructure, used in tandem with master
 		/// array to assemble sentence
 		/// </summary>
-		public struct MarkovSegment {
+		public class MarkovSegment {
 			/// <summary>
 			/// Index which points to associated ngram in master
 			/// markov structure
 			/// </summary>
 			public readonly int current_ngram;
 
-			public int total_weight;
-
 			/// <summary>
-			/// Array of ngrams which succeed given ngram, along with their relatively frequency
+			/// Sorted array of ngrams which succeed given ngram, along with their relatively frequency
 			/// </summary>
 			public readonly NGramSuccessor[] successors;
+
+			/// <summary>
+			/// Array which is used for random selection which contains running total of weights
+			/// for each index in the successors
+			/// </summary>
+			public readonly int[] runningTotal;
+
+			/// <summary>
+			/// Selects random successor paying attention to weight
+			/// </summary>
+			/// <remarks>Hopscotch selection from https://blog.bruce-hill.com/a-faster-weighted-random-choice</remarks>
+			/// <returns></returns>
+			public int randomSuccessor() {
+				// TODO
+			}
 
 			/// <summary>
 			/// Constructor of MarkovSegment, meant to be used by MarkovStructure
@@ -149,30 +165,39 @@ namespace MarkovChain {
 				// value is map<index of successor, associated weight>
 				current_ngram = ngram;
 
-				// Populate successors, total weight
-				successors = new NGramSuccessor[prototype_successors.Count];
+				// Populate successors, running total
+				List<NGramSuccessor> sucset = new List<NGramSuccessor>(prototype_successors.Count);
+				runningTotal = new int[prototype_successors.Count];
 
-				int ind = 0;
-				total_weight = 0;
-
+				int total_weight = 0;
+				NGramSuccessor add;
+				int bs; // index to binary search for
 				foreach (var successor in prototype_successors) {
-					successors[ind++] = new NGramSuccessor(successor.Key, successor.Value);
-
 					total_weight += successor.Value;
+
+					add = new NGramSuccessor(successor.Key, successor.Value);
+
+					bs = sucset.BinarySearch(add);
+					bs = (bs == -1) ? 0 : bs;
+
+					sucset.Insert(bs, add);
+					runningTotal[bs] = total_weight;
 				}
+
+				successors = sucset.ToArray();
 			}
 
-			public MarkovSegment(int ngram, int weight, NGramSuccessor[] sucs) {
+			public MarkovSegment(int ngram, NGramSuccessor[] sucs, int[] runtot) {
 				current_ngram = ngram;
-				total_weight = weight;
 				successors = sucs;
+				runningTotal = runtot;
 			}
 		}
 
 		/// <summary>
 		/// Successor struct, couples ngram
 		/// </summary>
-		public struct NGramSuccessor {
+		public struct NGramSuccessor : IComparable<NGramSuccessor> {
 			/// <summary>
 			/// Index points to associated MarkovStructure chain_links index
 			/// </summary>
@@ -186,6 +211,10 @@ namespace MarkovChain {
 			public NGramSuccessor(int suc, int w) {
 				successor_index = suc;
 				weight = w;
+			}
+
+			int IComparable<NGramSuccessor>.CompareTo(NGramSuccessor o) {
+				return weight.CompareTo(o.weight);
 			}
 		}
 
@@ -203,7 +232,7 @@ namespace MarkovChain {
 			}
 
 			public override bool Equals(object obj) {
-				if ((obj == null) || !this.GetType().Equals(obj.GetType())) {
+				if ((obj == null) || !GetType().Equals(obj.GetType())) {
 					return false;
 				} else {
 					NGram o = (NGram)obj;
@@ -243,8 +272,8 @@ namespace MarkovChain {
 
 				List<MarkovSegment> links = new List<MarkovSegment>();
 				int current_cur;
-				int current_total;
 				List<NGramSuccessor> current_succesors;
+				List<int> current_running;
 				int current_sucind;
 				int current_weight;
 
@@ -273,15 +302,15 @@ namespace MarkovChain {
 					Debug.Assert(r.TokenType == JsonTokenType.StartArray);
 
 					// Loop must begin where token to be is start of array
-					while(true) {
+					while (true) {
 						// Start of ngram array
 						r.Read();
-						
+
 						if (r.TokenType != JsonTokenType.StartArray) break; // break at end of array
 
 						// Read NGram (array of ints)
 						curgram = new List<int>();
-						while(true) {
+						while (true) {
 							r.Read();
 							if (r.TokenType != JsonTokenType.Number) break; // break at end of array
 
@@ -313,14 +342,6 @@ namespace MarkovChain {
 						r.Read();
 						current_cur = r.GetInt32();
 
-						// Total weight property name
-						r.Read();
-						Debug.Assert(r.TokenType == JsonTokenType.PropertyName);
-
-						// Total weight value
-						r.Read();
-						current_total = r.GetInt32();
-
 						// Parse successors
 
 						// Successor property name
@@ -334,7 +355,7 @@ namespace MarkovChain {
 						current_succesors = new List<NGramSuccessor>();
 
 						// Loop must begin where token to be is start of object
-						while(true) {
+						while (true) {
 							r.Read();
 
 							// Exit at end of array (is not start object)
@@ -363,10 +384,33 @@ namespace MarkovChain {
 							current_succesors.Add(new NGramSuccessor(current_sucind, current_weight));
 						}
 
+						// Parse running totals
+
+						// Running totals name
+						r.Read();
+						Debug.Assert(r.TokenType == JsonTokenType.PropertyName);
+
+						// Start of running totals array
+						r.Read();
+						Debug.Assert(r.TokenType == JsonTokenType.StartArray);
+
+						current_running = new List<int>();
+
+						// Loop must begin where token to be is start of object
+						while (true) {
+							r.Read();
+
+							if (r.TokenType != JsonTokenType.Number) break;
+
+							// Read integer
+							r.Read();
+							current_running.Add(r.GetInt32());
+						}
+
 						// End of MarkovSegment object
 						r.Read();
 
-						links.Add(new MarkovSegment(current_cur, current_total, current_succesors.ToArray()));
+						links.Add(new MarkovSegment(current_cur, current_succesors.ToArray(), current_running.ToArray()));
 					}
 
 					// Ends ready to parse next property
@@ -377,7 +421,7 @@ namespace MarkovChain {
 					r.Read();
 					Debug.Assert(r.TokenType == JsonTokenType.StartArray);
 
-					while(true) {
+					while (true) {
 						r.Read();
 
 						// Exit at end of array (not number)
@@ -448,9 +492,6 @@ namespace MarkovChain {
 					// Current ngram
 					writer.WriteNumber("current", link.current_ngram);
 
-					// Total weight
-					writer.WriteNumber("total weight", link.total_weight);
-
 					// Successors
 					writer.WriteStartArray("successors");
 					foreach (NGramSuccessor suc in link.successors) {
@@ -463,6 +504,13 @@ namespace MarkovChain {
 						writer.WriteNumber("weight", suc.weight);
 
 						writer.WriteEndObject();
+					}
+					writer.WriteEndArray();
+
+					// Running total array
+					writer.WriteStartArray("running");
+					foreach (int cur in link.runningTotal) {
+						writer.WriteNumberValue(cur);
 					}
 					writer.WriteEndArray();
 
