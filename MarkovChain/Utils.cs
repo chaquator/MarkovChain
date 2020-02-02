@@ -87,6 +87,37 @@ namespace MarkovChain {
 		/// <remarks>Hopscotch selection retrieved from
 		/// https://blog.bruce-hill.com/a-faster-weighted-random-choice </remarks>
 		/// <returns>Choice which has been selected</returns>
+		/// <example>
+		/// <code>
+		/// // Map assocaiting character with relative frequency
+		/// Dictionary&lt;char, int&gt; m = new Dictionary&lt;char, int&gt; {
+		/// 	{ 'a', 5 },
+		/// 	{ 'b', 2 },
+		/// 	{ 'c', 2 },
+		/// 	{ 'd', 2 },
+		/// 	{ 'e', 1 }
+		/// };
+		/// 
+		/// // Building running totals list
+		/// int[] r = new int[m.Count];
+		/// int t = 0;
+		/// int i = 0;
+		/// foreach (var kvp in m) {
+		/// 	t += kvp.Value;
+		/// 	r[i++] = t;
+		/// }
+		/// 
+		/// char[] k = new char[m.Count]; // the array of characters
+		/// m.Keys.CopyTo(k, 0);
+		/// 
+		/// // Weight selector function, uses map
+		/// Func&lt;char, int&gt; selector = (c) =&gt; m[c];
+		/// 
+		/// char result = Utils.RandomWeightedChoice(k, r, selector)
+		/// 
+		/// Console.Write(result);
+		/// </code>
+		/// </example>
 		public static T RandomWeightedChoice<T>(T[] sorted_items,
 			int[] running_totals,
 			Func<T, int> weight_selector) {

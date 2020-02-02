@@ -474,7 +474,6 @@ namespace MarkovChain {
 			/// </summary>
 			/// <param name="cursent"></param>
 			/// <param name="position"></param>
-			/// <param name="proto_gram"></param>
 			/// <returns></returns>
 			private NGram Markovization_Ingest_Gram(int[] cursent, int position) {
 				int[] proto_gram = new int[options.gram_size];
