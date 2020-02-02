@@ -37,21 +37,37 @@ namespace MarkovChain {
 			/// </summary>
 			public readonly int[] seeds;
 
-			// TODO: WRITE
+			/// <summary>
+			/// Generates a sequence of indeces which represent words from the
+			/// dicitonary to be strung together
+			/// </summary>
+			/// <returns></returns>
 			public int[] GenerateSqeuence() {
 				return new int[] { 0 };
 			}
 
-			// TODO: write
+			/// <summary>
+			/// Converts a sequence of indeces representing words in the dictionary
+			/// to a string
+			/// </summary>
+			/// <param name="seq"></param>
+			/// <returns></returns>
 			public string SequenceToString(int[] seq) {
 				return "";
 			}
 
-			// TODO: summary
+			/// <summary>
+			/// Generates a sentence string
+			/// </summary>
+			/// <returns></returns>
 			public string GenerateSentence() {
 				return SequenceToString(GenerateSqeuence());
 			}
 
+			/// <summary>
+			/// Writes structure to file in JSON format
+			/// </summary>
+			/// <param name="filename"></param>
 			public void WriteFile(string filename) {
 				JsonWriterOptions jswropt = new JsonWriterOptions {
 					Indented = false,
@@ -68,6 +84,10 @@ namespace MarkovChain {
 				}
 			}
 
+			/// <summary>
+			/// Converts structure to JSON string
+			/// </summary>
+			/// <returns></returns>
 			public override string ToString() {
 				JsonSerializerOptions jssropt = new JsonSerializerOptions() {
 					WriteIndented = false
@@ -76,6 +96,11 @@ namespace MarkovChain {
 				return JsonSerializer.Serialize<MarkovStructure>(this, jssropt);
 			}
 
+			/// <summary>
+			/// Reads JSON file into structure
+			/// </summary>
+			/// <param name="filename"></param>
+			/// <returns></returns>
 			public static MarkovStructure ReadFile(string filename) {
 				using (FileStream fs = new FileStream(filename, FileMode.Open)) {
 					JsonSerializerOptions jssropt = new JsonSerializerOptions();
@@ -151,8 +176,9 @@ namespace MarkovChain {
 			/// </summary>
 			/// <remarks>Hopscotch selection from https://blog.bruce-hill.com/a-faster-weighted-random-choice</remarks>
 			/// <returns></returns>
-			public int randomSuccessor() {
-				// TODO
+			public NGramSuccessor randomSuccessor() {
+				// TODO: test if this part of the chain works
+				return Utils.RandomWeightedChoice(successors, runningTotal, (x) => x.weight);
 			}
 
 			/// <summary>
@@ -165,26 +191,29 @@ namespace MarkovChain {
 				// value is map<index of successor, associated weight>
 				current_ngram = ngram;
 
-				// Populate successors, running total
+				// Populate successors
 				List<NGramSuccessor> sucset = new List<NGramSuccessor>(prototype_successors.Count);
-				runningTotal = new int[prototype_successors.Count];
 
-				int total_weight = 0;
 				NGramSuccessor add;
 				int bs; // index to binary search for
 				foreach (var successor in prototype_successors) {
-					total_weight += successor.Value;
-
 					add = new NGramSuccessor(successor.Key, successor.Value);
 
-					bs = sucset.BinarySearch(add);
-					bs = (bs == -1) ? 0 : bs;
+					bs = sucset.BinarySearch(add, new ReverseNGramSuccessorComparer());
+					bs = (bs == -1) ? 0 : (bs < 0) ? ~bs : bs;
 
 					sucset.Insert(bs, add);
-					runningTotal[bs] = total_weight;
 				}
 
 				successors = sucset.ToArray();
+
+				// Running totals
+				int total_weight = 0;
+				runningTotal = new int[prototype_successors.Count];
+				for (int ind = 0; ind < runningTotal.Length; ++ind) {
+					total_weight += successors[ind].weight;
+					runningTotal[ind] = total_weight;
+				}
 			}
 
 			public MarkovSegment(int ngram, NGramSuccessor[] sucs, int[] runtot) {
@@ -256,6 +285,12 @@ namespace MarkovChain {
 			}
 		}
 
+		public class ReverseNGramSuccessorComparer : IComparer<NGramSuccessor> {
+			public int Compare(NGramSuccessor x, NGramSuccessor y) {
+				return y.weight.CompareTo(x.weight);
+			}
+		}
+
 		public class MarkovStructureJsonConverter : JsonConverter<MarkovStructure> {
 			public override bool CanConvert(Type typeToConvert) {
 				return true;
@@ -279,7 +314,6 @@ namespace MarkovChain {
 
 				List<int> seeds = new List<int>();
 
-				// TODO: maybe do something about debug asserts??
 				void readDic(ref Utf8JsonReader r) {
 					// Start array
 					r.Read();

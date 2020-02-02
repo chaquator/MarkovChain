@@ -1,5 +1,8 @@
 ﻿using System;
 
+using System.Collections;
+using System.Collections.Generic;
+
 namespace MarkovChain {
 	class Program {
 		static void Main() {
@@ -21,7 +24,7 @@ namespace MarkovChain {
 				gram_size = 2,
 				outfile_markov = "test.markov"
 			};
-#if true
+#if false
 			Ingesting.Pipeline pipe = new Ingesting.Pipeline(opts);
 			if (!pipe.Run()) {
 				Console.WriteLine("Some sort of error occured.");
@@ -30,6 +33,39 @@ namespace MarkovChain {
 			Structs.MarkovStructure resultant = pipe.finished_markovstruct;
 			resultant.WriteFile(opts.outfile_markov);
 #endif
+			// RANDOM WEIGHTED CHOICE TEST
+			Dictionary<char, int> m = new Dictionary<char, int> {
+				{ 'a', 5 },
+				{ 'b', 2 },
+				{ 'c', 2 },
+				{ 'd', 2 },
+				{ 'e', 1 }
+			};
+			int[] r = new int[m.Count];
+			int t = 0;
+			int i = 0;
+			foreach (var kvp in m) {
+				t += kvp.Value;
+				r[i++] = t;
+			}
+
+			bool s = true;
+			do {
+				if (s) {
+					s = false;
+				} else {
+					Console.Write('\n');
+				}
+
+				char[] k = new char[m.Count];
+				m.Keys.CopyTo(k, 0);
+				Console.WriteLine(Utils.RandomWeightedChoice(k, r, (c) => m[c]));
+
+				Console.Write("Continue? (y/n) ");
+
+			} while (Console.ReadKey().Key != ConsoleKey.N);
+
+			Console.Write('\n');
 
 			/*	TODO: implement proper options
 			 *		-	Maybe ingest unique regex filters, can be some sort of csv
