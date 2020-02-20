@@ -44,6 +44,8 @@ namespace MarkovChain {
 			/// <returns></returns>
 			public int[] GenerateSqeuence() {
 				return new int[] { 0 };
+				// Start with seed (will be uniform probability)
+				// 
 			}
 
 			/// <summary>
@@ -69,12 +71,13 @@ namespace MarkovChain {
 			/// </summary>
 			/// <param name="filename"></param>
 			public void WriteFile(string filename) {
+				const bool writeIndent = true;
 				JsonWriterOptions jswropt = new JsonWriterOptions {
-					Indented = false,
+					Indented = writeIndent,
 					SkipValidation = true
 				};
 				JsonSerializerOptions jssropt = new JsonSerializerOptions() {
-					WriteIndented = false
+					WriteIndented = writeIndent
 				};
 
 				using (FileStream fs = new FileStream(filename, FileMode.Create))
@@ -174,10 +177,9 @@ namespace MarkovChain {
 			/// <summary>
 			/// Selects random successor paying attention to weight
 			/// </summary>
-			/// <remarks>Hopscotch selection from https://blog.bruce-hill.com/a-faster-weighted-random-choice</remarks>
-			/// <returns></returns>
+			/// <remarks>Hopscotch selection from https://blog.bruce-hill.com/a-faster-weighted-random-choice </remarks>
+			/// <returns>Returns a chain link representing the successor</returns>
 			public NGramSuccessor randomSuccessor() {
-				// TODO: test if this part of the chain works
 				return Utils.RandomWeightedChoice(successors, runningTotal, (x) => x.weight);
 			}
 
@@ -230,6 +232,7 @@ namespace MarkovChain {
 			/// <summary>
 			/// Index points to associated MarkovStructure chain_links index
 			/// </summary>
+			// TODO: evaluate if this successor index is actually correct; does it point to the succeeding NGram or actual successor?
 			public readonly int successor_index;
 
 			/// <summary>

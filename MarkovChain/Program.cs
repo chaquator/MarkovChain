@@ -24,7 +24,7 @@ namespace MarkovChain {
 				gram_size = 2,
 				outfile_markov = "test.markov"
 			};
-#if false
+#if true
 			Ingesting.Pipeline pipe = new Ingesting.Pipeline(opts);
 			if (!pipe.Run()) {
 				Console.WriteLine("Some sort of error occured.");

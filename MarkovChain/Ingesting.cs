@@ -407,13 +407,14 @@ namespace MarkovChain {
 						index, // index of current ngram
 						index_suc; // index of succeeding ngram
 
-					NGram curgram,
-						  newgram;
+					NGram curgram;
 
 					if (conqueue_dictionarized.TryDequeue(out int[] cursent)) {
 						pos = 0;
 
 						// Grab firs gram
+
+						// Short-circuit procedure for when sentence is to be made up of one gram
 						if (cursent.Length <= options.gram_size) {
 							// Sentence is one gram which may or may not be short
 							curgram = new NGram(cursent);
@@ -421,10 +422,11 @@ namespace MarkovChain {
 							// Register, set as seed
 							working_master_seeds[Markovization_Register_Gram(ref curgram)] = true;
 
+							// Move on with next sentence
 							continue;
 						}
 
-						// Otherwise it's not
+						//Regular procedure, grabs first gram, regisers, and loops to the end grabbing grams
 						curgram = Markovization_Ingest_Gram(cursent, pos++);
 						index = Markovization_Register_Gram(ref curgram);
 
@@ -437,8 +439,8 @@ namespace MarkovChain {
 						//			      ^stop
 						//		pos <= 6[length] - 3[size]
 						while (pos <= cursent.Length - options.gram_size) {
-							newgram = Markovization_Ingest_Gram(cursent, pos++);
-							index_suc = Markovization_Register_Gram(ref newgram);
+							curgram = Markovization_Ingest_Gram(cursent, pos++);
+							index_suc = Markovization_Register_Gram(ref curgram);
 
 							// Update (or establish) successor counter
 							if (working_master_successors[index].ContainsKey(index_suc)) {
@@ -447,8 +449,7 @@ namespace MarkovChain {
 								working_master_successors[index][index_suc] = 1;
 							}
 
-							// Out with the old, in with the new
-							curgram = newgram;
+							// Shift out the old
 							index = index_suc;
 						}
 					} else {
