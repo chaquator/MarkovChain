@@ -23,17 +23,19 @@ namespace MarkovChain {
 			public string[] dictionary;
 
 			/// <summary>
-			/// Grams is an array of all possible unqiue grams on their own
+			/// Array of all possible ngrams. Each ngram has a list of integers which correspond to
+			/// the indeces of the corresponding word in the gram within the dictionary array.
 			/// </summary>
 			public readonly NGram[] grams;
 
 			/// <summary>
-			/// Array of all unique ngrams, each with their successors
+			/// Array which pairs ngrams with all their successors.
+			/// Each chain link's index corresponds with the ngram it's associated with. e.g. chain_links[0] is paired with grams[0].
 			/// </summary>
 			public readonly MarkovSegment[] chain_links;
 
 			/// <summary>
-			/// Array of indeces which point to chain links that happen to be starts of sentences
+			/// Array that points to a seed by its ngram index. A seed is an ngram which is at the start of a sentence.
 			/// </summary>
 			public readonly int[] seeds;
 
@@ -42,10 +44,51 @@ namespace MarkovChain {
 			/// dicitonary to be strung together
 			/// </summary>
 			/// <returns></returns>
-			public int[] GenerateSqeuence() {
-				return new int[] { 0 };
-				// Start with seed (will be uniform probability)
-				// 
+			public int[] GenerateSqeuence(Random rand) {
+				//	Start with sentence prototype as int list, curgram
+				//	Get seed (will be uniform probability, for now at least)
+				//	Set curgram to seed
+				//	Copy ngram's contents to list
+				//	Set curgram to random successor of seed
+				//	While curgram's last index isn't -1 (end of sentence)
+				//		Put curgram's last index to end of sentence
+				//		Set curgram to random successor of curgram
+				//	Return sentence as int array
+
+				// Start with sentence prototype as int list, curgram
+				List<int> proto_ret;
+				int curgram_i;
+				int[] curgram_l;
+
+				// Get seed
+				curgram_i = seeds[rand.Next(seeds.Length)];
+				curgram_l = grams[curgram_i].gram;
+
+				// Copy ngram's contents to list
+				proto_ret = new List<int>(curgram_l);
+
+				// Short circuit return for seeds which are a single sentence
+				if (curgram_l[curgram_l.Length - 1] == -1) {
+					proto_ret.RemoveAt(curgram_l.Length - 1);
+					return proto_ret.ToArray();
+				}
+
+				// Set curgram to successor
+				curgram_i = chain_links[curgram_i].randomSuccessor().successor_index;
+				curgram_l = grams[curgram_i].gram;
+
+				// While curgram's last index isn't -1 (end of sentence)
+				while (curgram_l[curgram_l.Length - 1] != -1) {
+					// Put curgram's last index to end of sentence
+					proto_ret.Add(curgram_l[curgram_l.Length - 1]);
+
+					// Set curgram to successor
+					curgram_i = chain_links[curgram_i].randomSuccessor().successor_index;
+					curgram_l = grams[curgram_i].gram;
+				}
+
+				// Sentence as int array
+				return proto_ret.ToArray();
 			}
 
 			/// <summary>
@@ -62,8 +105,8 @@ namespace MarkovChain {
 			/// Generates a sentence string
 			/// </summary>
 			/// <returns></returns>
-			public string GenerateSentence() {
-				return SequenceToString(GenerateSqeuence());
+			public string GenerateSentence(Random rand) {
+				return SequenceToString(GenerateSqeuence(rand));
 			}
 
 			/// <summary>
@@ -130,12 +173,14 @@ namespace MarkovChain {
 				grams = grms.ToArray();
 
 				// Populate chain links
+				// Population is doing such that chain link's index corresponds with ngram's index in master gram array
 				chain_links = new MarkovSegment[grams.Length];
 				Parallel.For(0, grams.Length,
 					(ind) => {
 						chain_links[ind] = new MarkovSegment(ind, prototype_chainlinks[ind]);
 					}
 				);
+				// Equivalent sequential loop:
 				//for (int ind = 0; ind < grams.Length; ++ind) {
 				//	chain_links[ind] = new MarkovSegment(ind, prototype_chainlinks[ind]);
 				//}
@@ -232,7 +277,6 @@ namespace MarkovChain {
 			/// <summary>
 			/// Index points to associated MarkovStructure chain_links index
 			/// </summary>
-			// TODO: evaluate if this successor index is actually correct; does it point to the succeeding NGram or actual successor?
 			public readonly int successor_index;
 
 			/// <summary>

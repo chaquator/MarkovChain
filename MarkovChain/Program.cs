@@ -31,7 +31,18 @@ namespace MarkovChain {
 			}
 
 			Structs.MarkovStructure resultant = pipe.finished_markovstruct;
-			resultant.WriteFile(opts.outfile_markov);
+			//resultant.WriteFile(opts.outfile_markov);
+
+			Random r = new Random();
+			do {
+				for (int j = 0; j < 1000; j++) {
+					int[] test = resultant.GenerateSqeuence(r);
+					foreach (int i in test) {
+						Console.Write("{0} ", i);
+					}
+					Console.Write("\n");
+				}
+			} while (Console.ReadKey().Key != ConsoleKey.Q);
 #endif
 
 			/*	TODO: implement proper options

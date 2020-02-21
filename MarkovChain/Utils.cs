@@ -48,7 +48,7 @@ namespace MarkovChain {
 				}
 			}
 
-			// TODO: is right always the correct answer??
+			// QUESTION: is right always the correct answer??
 			// Move pivot
 			arr[l] = arr[right];
 			arr[right] = pivot;
