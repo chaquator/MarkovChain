@@ -36,11 +36,7 @@ namespace MarkovChain {
 			Random r = new Random();
 			do {
 				for (int j = 0; j < 1000; j++) {
-					int[] test = resultant.GenerateSqeuence(r);
-					foreach (int i in test) {
-						Console.Write("{0} ", i);
-					}
-					Console.Write("\n");
+					Console.WriteLine(resultant.GenerateSentence(r));
 				}
 			} while (Console.ReadKey().Key != ConsoleKey.Q);
 #endif

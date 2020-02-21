@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -98,7 +99,15 @@ namespace MarkovChain {
 			/// <param name="seq"></param>
 			/// <returns></returns>
 			public string SequenceToString(int[] seq) {
-				return "";
+				StringBuilder sb = new StringBuilder();
+
+				for(int index = 0; index < seq.Length; ++index) {
+					sb.Append(dictionary[seq[index]]);
+
+					if (index + 1 < seq.Length) sb.Append(" ");
+				}
+
+				return sb.ToString();
 			}
 
 			/// <summary>
