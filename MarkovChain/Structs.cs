@@ -226,18 +226,28 @@ namespace MarkovChain {
 				//		If dicmap does not have current from other then
 				//			Insert current into combined dictionary and map current to corresponding index in dicmap
 
-				// Make combined dictionary with necessary maximum space reserved, populate with own dictionary
+				// Combined dictionary, dicmap
 				List<string> combined_dictionary = new List<string>(dictionary.Length + other.dictionary.Length);
-				Parallel.For(0, dictionary.Length, (index) => {
-					combined_dictionary[index] = dictionary[index];
+				Dictionary<string, int> combined_dicmap = new Dictionary<string, int>(dictionary.Length + other.dictionary.Length);
+
+				// i know someones gonna look at this garbage and say im full of myself to using so much concurrency only because "waah waah what if the dataset is huge"
+				Task populate_dictionary = Task.Run(() => {
+					// Populate dictionary with own dictionary
+					Parallel.For(0, dictionary.Length, (index) => {
+						combined_dictionary[index] = dictionary[index];
+					});
 				});
 
-				// Make dicmap with necessary space reserved, populate with own dictionary
-				Dictionary<string, int> combined_dicmap = new Dictionary<string, int>(dictionary.Length + other.dictionary.Length);
-				int i = 0;
-				foreach (string w in dictionary) {
-					combined_dicmap[w] = i++;
-				}
+				Task populate_dicmap = Task.Run(() => {
+					// Populate dicmap
+					int i = 0;
+					foreach (string w in dictionary) {
+						combined_dicmap[w] = i++;
+					}
+				});
+
+				populate_dictionary.Wait();
+				populate_dicmap.Wait();
 
 				// Go through other's dictionary, populate onto combined
 				foreach (string w in dictionary) {
