@@ -41,7 +41,6 @@ namespace MarkovChain {
 			/// <summary>
 			/// Unsigned long representing size of n-gram for a markov chain segment
 			/// </summary>
-			// TODO: change summary, implement precondition check of gram_size > 0 somewhere
 			public int gram_size;
 
 			/// <summary>
@@ -59,7 +58,7 @@ namespace MarkovChain {
 			//	--> SENTENCE BANK --(MARKOVIZING)--> MARKOV STRUCTURE
 
 			// Metaproces related fields
-			public IngestOptions options;
+			public readonly IngestOptions options;
 			public Status status;
 
 			// Resultant values to grab
@@ -99,7 +98,8 @@ namespace MarkovChain {
 			/// </summary>
 			public enum Status {
 				ALL_GOOD,
-				ERROR_COLUMN_NOT_FOUND
+				ERROR_COLUMN_NOT_FOUND,
+				INVALID_GRAM_SIZE
 			}
 
 			/// <summary>
@@ -149,6 +149,12 @@ namespace MarkovChain {
 				// TODO: fancy output where each thread uses a callback function to write to specific console line
 				//			-output in console size of all conqueues so for large data sets it can be seen progressing
 				// TODO: consider lofting out each stage (and threads) into its own class for variable seperation
+
+				// Gram size precondition
+				if(options.gram_size < 1) {
+					status = Status.INVALID_GRAM_SIZE;
+					return false;
+				}
 
 				Thread thread_csv = new Thread(Thread_CSV_Ingest);
 				Thread thread_filter = new Thread(Thread_Filter_Lead);

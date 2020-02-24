@@ -41,8 +41,8 @@ namespace MarkovChain {
 			} while (Console.ReadKey().Key != ConsoleKey.Q);
 #endif
 
-			/*	TODO: implement proper options
-			 *		-	Maybe ingest unique regex filters, can be some sort of csv
+			/*	TODO: Plan out fully fledged options and implement them
+			 *		-	Maybe ingest unique regex filters, can be some sort of input csv file idk
 			 *		-	Maybe split runtime functionality into ingest and create from file
 			 *		-		Maybe ingest has a flag to create from ingested
 			 *		-	For creating, read from stdin or from passed "-input" parameter to produce in some sed shell like quality

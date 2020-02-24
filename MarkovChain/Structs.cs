@@ -21,24 +21,24 @@ namespace MarkovChain {
 			/// <summary>
 			/// Dictionary is an array of strings, where each index is used as the reference in the n-grams
 			/// </summary>
-			public string[] dictionary;
+			internal readonly string[] dictionary;
 
 			/// <summary>
 			/// Array of all possible ngrams. Each ngram has a list of integers which correspond to
 			/// the indeces of the corresponding word in the gram within the dictionary array.
 			/// </summary>
-			public readonly NGram[] grams;
+			internal readonly NGram[] grams;
 
 			/// <summary>
 			/// Array which pairs ngrams with all their successors.
 			/// Each chain link's index corresponds with the ngram it's associated with. e.g. chain_links[0] is paired with grams[0].
 			/// </summary>
-			public readonly MarkovSegment[] chain_links;
+			internal readonly MarkovSegment[] chain_links;
 
 			/// <summary>
 			/// Array that points to a seed by its ngram index. A seed is an ngram which is at the start of a sentence.
 			/// </summary>
-			public readonly int[] seeds;
+			internal readonly int[] seeds;
 
 			/// <summary>
 			/// Generates a sequence of indeces which represent words from the
@@ -101,7 +101,7 @@ namespace MarkovChain {
 			public string SequenceToString(int[] seq) {
 				StringBuilder sb = new StringBuilder();
 
-				for(int index = 0; index < seq.Length; ++index) {
+				for (int index = 0; index < seq.Length; ++index) {
 					sb.Append(dictionary[seq[index]]);
 
 					if (index + 1 < seq.Length) sb.Append(" ");
@@ -134,7 +134,7 @@ namespace MarkovChain {
 
 				using (FileStream fs = new FileStream(filename, FileMode.Create))
 				using (Utf8JsonWriter jswr = new Utf8JsonWriter(fs, jswropt)) {
-					MarkovStructureJsonConverter converter = new MarkovStructureJsonConverter();
+					Meta.MarkovStructureJsonConverter converter = new Meta.MarkovStructureJsonConverter();
 					converter.Write(jswr, this, jssropt);
 				}
 			}
@@ -147,7 +147,7 @@ namespace MarkovChain {
 				JsonSerializerOptions jssropt = new JsonSerializerOptions() {
 					WriteIndented = false
 				};
-				jssropt.Converters.Add(new MarkovStructureJsonConverter());
+				jssropt.Converters.Add(new Meta.MarkovStructureJsonConverter());
 				return JsonSerializer.Serialize<MarkovStructure>(this, jssropt);
 			}
 
@@ -159,7 +159,7 @@ namespace MarkovChain {
 			public static MarkovStructure ReadFile(string filename) {
 				using (FileStream fs = new FileStream(filename, FileMode.Open)) {
 					JsonSerializerOptions jssropt = new JsonSerializerOptions();
-					jssropt.Converters.Add(new MarkovStructureJsonConverter());
+					jssropt.Converters.Add(new Meta.MarkovStructureJsonConverter());
 					return JsonSerializer.DeserializeAsync<MarkovStructure>(fs, jssropt).Result;
 				}
 			}
@@ -203,6 +203,53 @@ namespace MarkovChain {
 				grams = grms;
 				chain_links = links;
 				seeds = sds;
+			}
+
+			public MarkovStructure combine(MarkovStructure other) {
+				// TODO: design combine function
+
+				//	What to do with dictionary
+				//		Create a map for other dictionary which maps every index in other's dic to a index in combined dic
+				//			All combined dic starts as current's dic
+				//	Then ngrams
+				//		All of own ngrams will not need to be changed
+				//		Will need to go through other's ngrams and remake with new indeces
+				//		Will need to make a combined list of ngrams, store the unique ones resulting from remap
+				//	The chain links
+				//		All of own links will need not be changed
+				//		... finish here 
+				//	Then seeds
+				//		Just combine seeds?
+				//
+				//	Create combined dic & remap dic, populate both
+				//	Go through other's dictionary and populate onto combined dictionary
+				//		If dicmap does not have current from other then
+				//			Insert current into combined dictionary and map current to corresponding index in dicmap
+
+				// Make combined dictionary with necessary maximum space reserved, populate with own dictionary
+				List<string> combined_dictionary = new List<string>(dictionary.Length + other.dictionary.Length);
+				Parallel.For(0, dictionary.Length, (index) => {
+					combined_dictionary[index] = dictionary[index];
+				});
+
+				// Make dicmap with necessary space reserved, populate with own dictionary
+				Dictionary<string, int> combined_dicmap = new Dictionary<string, int>(dictionary.Length + other.dictionary.Length);
+				int i = 0;
+				foreach (string w in dictionary) {
+					combined_dicmap[w] = i++;
+				}
+
+				// Go through other's dictionary, populate onto combined
+				foreach (string w in dictionary) {
+					if(!combined_dicmap.ContainsKey(w)) {
+						combined_dicmap[w] = combined_dictionary.Count;
+						combined_dictionary.Add(w);
+					}
+				}
+
+				// TODO: finish the rest of combine function
+
+				return null;
 			}
 		}
 
@@ -255,7 +302,7 @@ namespace MarkovChain {
 				foreach (var successor in prototype_successors) {
 					add = new NGramSuccessor(successor.Key, successor.Value);
 
-					bs = sucset.BinarySearch(add, new ReverseNGramSuccessorComparer());
+					bs = sucset.BinarySearch(add, new Meta.ReverseNGramSuccessorComparer());
 					bs = (bs == -1) ? 0 : (bs < 0) ? ~bs : bs;
 
 					sucset.Insert(bs, add);
@@ -341,281 +388,283 @@ namespace MarkovChain {
 			}
 		}
 
-		public class ReverseNGramSuccessorComparer : IComparer<NGramSuccessor> {
-			public int Compare(NGramSuccessor x, NGramSuccessor y) {
-				return y.weight.CompareTo(x.weight);
-			}
-		}
-
-		public class MarkovStructureJsonConverter : JsonConverter<MarkovStructure> {
-			public override bool CanConvert(Type typeToConvert) {
-				return true;
+		namespace Meta {
+			public class ReverseNGramSuccessorComparer : IComparer<NGramSuccessor> {
+				public int Compare(NGramSuccessor x, NGramSuccessor y) {
+					return y.weight.CompareTo(x.weight);
+				}
 			}
 
-			public override MarkovStructure Read(ref Utf8JsonReader reader,
-				Type typeToConvert,
-				JsonSerializerOptions options) {
-
-				List<string> dictionary = new List<string>();
-
-				List<NGram> grams = new List<NGram>();
-				List<int> curgram;
-
-				List<MarkovSegment> links = new List<MarkovSegment>();
-				int current_cur;
-				List<NGramSuccessor> current_succesors;
-				List<int> current_running;
-				int current_sucind;
-				int current_weight;
-
-				List<int> seeds = new List<int>();
-
-				void readDic(ref Utf8JsonReader r) {
-					// Start array
-					r.Read();
-					Debug.Assert(r.TokenType == JsonTokenType.StartArray);
-
-					// Loop must begin where token to be is string
-					while (true) {
-						r.Read();
-						if (r.TokenType != JsonTokenType.String) break;
-
-						dictionary.Add(r.GetString());
-					}
-
-					// Ends ready to parse next property
+			public class MarkovStructureJsonConverter : JsonConverter<MarkovStructure> {
+				public override bool CanConvert(Type typeToConvert) {
+					return true;
 				}
 
-				void readNGramsWhole(ref Utf8JsonReader r) {
-					// Start array
-					r.Read();
-					Debug.Assert(r.TokenType == JsonTokenType.StartArray);
+				public override MarkovStructure Read(ref Utf8JsonReader reader,
+					Type typeToConvert,
+					JsonSerializerOptions options) {
 
-					// Loop must begin where token to be is start of array
-					while (true) {
-						// Start of ngram array
-						r.Read();
+					List<string> dictionary = new List<string>();
 
-						if (r.TokenType != JsonTokenType.StartArray) break; // break at end of array
+					List<NGram> grams = new List<NGram>();
+					List<int> curgram;
 
-						// Read NGram (array of ints)
-						curgram = new List<int>();
-						while (true) {
-							r.Read();
-							if (r.TokenType != JsonTokenType.Number) break; // break at end of array
+					List<MarkovSegment> links = new List<MarkovSegment>();
+					int current_cur;
+					List<NGramSuccessor> current_succesors;
+					List<int> current_running;
+					int current_sucind;
+					int current_weight;
 
-							curgram.Add(r.GetInt32());
-						}
-						grams.Add(new NGram(curgram.ToArray()));
-					}
+					List<int> seeds = new List<int>();
 
-					// Ends ready to parse next property
-				}
-
-				void readMarkovSegmentsWhole(ref Utf8JsonReader r) {
-					// Start of links array
-					r.Read();
-					Debug.Assert(r.TokenType == JsonTokenType.StartArray);
-
-					// Loop must begin where token to be is start of object
-					while (true) {
-						r.Read();
-
-						// Exit when at end of array (token isnt start of object)
-						if (r.TokenType != JsonTokenType.StartObject) break;
-
-						// Current index property name
-						r.Read();
-						Debug.Assert(r.TokenType == JsonTokenType.PropertyName);
-
-						// Current index value
-						r.Read();
-						current_cur = r.GetInt32();
-
-						// Parse successors
-
-						// Successor property name
-						r.Read();
-						Debug.Assert(r.TokenType == JsonTokenType.PropertyName);
-
-						// Start of successors array
+					void readDic(ref Utf8JsonReader r) {
+						// Start array
 						r.Read();
 						Debug.Assert(r.TokenType == JsonTokenType.StartArray);
 
-						current_succesors = new List<NGramSuccessor>();
+						// Loop must begin where token to be is string
+						while (true) {
+							r.Read();
+							if (r.TokenType != JsonTokenType.String) break;
+
+							dictionary.Add(r.GetString());
+						}
+
+						// Ends ready to parse next property
+					}
+
+					void readNGramsWhole(ref Utf8JsonReader r) {
+						// Start array
+						r.Read();
+						Debug.Assert(r.TokenType == JsonTokenType.StartArray);
+
+						// Loop must begin where token to be is start of array
+						while (true) {
+							// Start of ngram array
+							r.Read();
+
+							if (r.TokenType != JsonTokenType.StartArray) break; // break at end of array
+
+							// Read NGram (array of ints)
+							curgram = new List<int>();
+							while (true) {
+								r.Read();
+								if (r.TokenType != JsonTokenType.Number) break; // break at end of array
+
+								curgram.Add(r.GetInt32());
+							}
+							grams.Add(new NGram(curgram.ToArray()));
+						}
+
+						// Ends ready to parse next property
+					}
+
+					void readMarkovSegmentsWhole(ref Utf8JsonReader r) {
+						// Start of links array
+						r.Read();
+						Debug.Assert(r.TokenType == JsonTokenType.StartArray);
 
 						// Loop must begin where token to be is start of object
 						while (true) {
 							r.Read();
 
-							// Exit at end of array (is not start object)
+							// Exit when at end of array (token isnt start of object)
 							if (r.TokenType != JsonTokenType.StartObject) break;
 
-							// Index property name
+							// Current index property name
 							r.Read();
 							Debug.Assert(r.TokenType == JsonTokenType.PropertyName);
 
-							// Index value
+							// Current index value
 							r.Read();
-							current_sucind = r.GetInt32();
+							current_cur = r.GetInt32();
 
-							// Weight property name
+							// Parse successors
+
+							// Successor property name
 							r.Read();
 							Debug.Assert(r.TokenType == JsonTokenType.PropertyName);
 
-							// Weight value
+							// Start of successors array
 							r.Read();
-							current_weight = r.GetInt32();
+							Debug.Assert(r.TokenType == JsonTokenType.StartArray);
 
-							// End of NGramSuccessor object
+							current_succesors = new List<NGramSuccessor>();
+
+							// Loop must begin where token to be is start of object
+							while (true) {
+								r.Read();
+
+								// Exit at end of array (is not start object)
+								if (r.TokenType != JsonTokenType.StartObject) break;
+
+								// Index property name
+								r.Read();
+								Debug.Assert(r.TokenType == JsonTokenType.PropertyName);
+
+								// Index value
+								r.Read();
+								current_sucind = r.GetInt32();
+
+								// Weight property name
+								r.Read();
+								Debug.Assert(r.TokenType == JsonTokenType.PropertyName);
+
+								// Weight value
+								r.Read();
+								current_weight = r.GetInt32();
+
+								// End of NGramSuccessor object
+								r.Read();
+								Debug.Assert(r.TokenType == JsonTokenType.EndObject);
+
+								current_succesors.Add(new NGramSuccessor(current_sucind, current_weight));
+							}
+
+							// Parse running totals
+
+							// Running totals name
 							r.Read();
-							Debug.Assert(r.TokenType == JsonTokenType.EndObject);
+							Debug.Assert(r.TokenType == JsonTokenType.PropertyName);
 
-							current_succesors.Add(new NGramSuccessor(current_sucind, current_weight));
+							// Start of running totals array
+							r.Read();
+							Debug.Assert(r.TokenType == JsonTokenType.StartArray);
+
+							current_running = new List<int>();
+
+							// Loop must begin where token to be is start of object
+							while (true) {
+								r.Read();
+
+								if (r.TokenType != JsonTokenType.Number) break;
+
+								// Read integer
+								r.Read();
+								current_running.Add(r.GetInt32());
+							}
+
+							// End of MarkovSegment object
+							r.Read();
+
+							links.Add(new MarkovSegment(current_cur, current_succesors.ToArray(), current_running.ToArray()));
 						}
 
-						// Parse running totals
+						// Ends ready to parse next property
+					}
 
-						// Running totals name
-						r.Read();
-						Debug.Assert(r.TokenType == JsonTokenType.PropertyName);
-
-						// Start of running totals array
+					void readSeeds(ref Utf8JsonReader r) {
+						// Start of array
 						r.Read();
 						Debug.Assert(r.TokenType == JsonTokenType.StartArray);
 
-						current_running = new List<int>();
-
-						// Loop must begin where token to be is start of object
 						while (true) {
 							r.Read();
 
+							// Exit at end of array (not number)
 							if (r.TokenType != JsonTokenType.Number) break;
 
-							// Read integer
-							r.Read();
-							current_running.Add(r.GetInt32());
+							seeds.Add(r.GetInt32());
 						}
 
-						// End of MarkovSegment object
-						r.Read();
-
-						links.Add(new MarkovSegment(current_cur, current_succesors.ToArray(), current_running.ToArray()));
+						// Ends ready to parse next property
 					}
 
-					// Ends ready to parse next property
-				}
-
-				void readSeeds(ref Utf8JsonReader r) {
-					// Start of array
-					r.Read();
-					Debug.Assert(r.TokenType == JsonTokenType.StartArray);
-
-					while (true) {
-						r.Read();
-
-						// Exit at end of array (not number)
-						if (r.TokenType != JsonTokenType.Number) break;
-
-						seeds.Add(r.GetInt32());
-					}
-
-					// Ends ready to parse next property
-				}
-
-				// Read order indiscriminately, ignoring comments & other things
-				while (reader.Read()) {
-					if (reader.TokenType == JsonTokenType.PropertyName) {
-						switch (reader.GetString()) {
-							case "dictionary":
-								readDic(ref reader);
-								break;
-							case "ngrams":
-								readNGramsWhole(ref reader);
-								break;
-							case "links":
-								readMarkovSegmentsWhole(ref reader);
-								break;
-							case "seeds":
-								readSeeds(ref reader);
-								break;
+					// Read order indiscriminately, ignoring comments & other things
+					while (reader.Read()) {
+						if (reader.TokenType == JsonTokenType.PropertyName) {
+							switch (reader.GetString()) {
+								case "dictionary":
+									readDic(ref reader);
+									break;
+								case "ngrams":
+									readNGramsWhole(ref reader);
+									break;
+								case "links":
+									readMarkovSegmentsWhole(ref reader);
+									break;
+								case "seeds":
+									readSeeds(ref reader);
+									break;
+							}
 						}
 					}
+
+					return new MarkovStructure(
+						dictionary.ToArray(),
+						grams.ToArray(),
+						links.ToArray(),
+						seeds.ToArray());
 				}
 
-				return new MarkovStructure(
-					dictionary.ToArray(),
-					grams.ToArray(),
-					links.ToArray(),
-					seeds.ToArray());
-			}
+				public override void Write(Utf8JsonWriter writer,
+					MarkovStructure value,
+					JsonSerializerOptions options) {
 
-			public override void Write(Utf8JsonWriter writer,
-				MarkovStructure value,
-				JsonSerializerOptions options) {
-
-				writer.WriteStartObject();
-
-				// Dictionary
-				writer.WriteStartArray("dictionary");
-				foreach (string word in value.dictionary) {
-					writer.WriteStringValue(word);
-				}
-				writer.WriteEndArray();
-
-				// NGrams dictionary 
-				writer.WriteStartArray("ngrams");
-				foreach (NGram gram in value.grams) {
-					writer.WriteStartArray();
-					foreach (int w in gram.gram) {
-						writer.WriteNumberValue(w);
-					}
-					writer.WriteEndArray();
-				}
-				writer.WriteEndArray();
-
-				// Chain links
-				writer.WriteStartArray("links");
-				foreach (MarkovSegment link in value.chain_links) {
 					writer.WriteStartObject();
 
-					// Current ngram
-					writer.WriteNumber("current", link.current_ngram);
+					// Dictionary
+					writer.WriteStartArray("dictionary");
+					foreach (string word in value.dictionary) {
+						writer.WriteStringValue(word);
+					}
+					writer.WriteEndArray();
 
-					// Successors
-					writer.WriteStartArray("successors");
-					foreach (NGramSuccessor suc in link.successors) {
+					// NGrams dictionary 
+					writer.WriteStartArray("ngrams");
+					foreach (NGram gram in value.grams) {
+						writer.WriteStartArray();
+						foreach (int w in gram.gram) {
+							writer.WriteNumberValue(w);
+						}
+						writer.WriteEndArray();
+					}
+					writer.WriteEndArray();
+
+					// Chain links
+					writer.WriteStartArray("links");
+					foreach (MarkovSegment link in value.chain_links) {
 						writer.WriteStartObject();
 
-						// Index
-						writer.WriteNumber("index", suc.successor_index);
+						// Current ngram
+						writer.WriteNumber("current", link.current_ngram);
 
-						// Weight
-						writer.WriteNumber("weight", suc.weight);
+						// Successors
+						writer.WriteStartArray("successors");
+						foreach (NGramSuccessor suc in link.successors) {
+							writer.WriteStartObject();
+
+							// Index
+							writer.WriteNumber("index", suc.successor_index);
+
+							// Weight
+							writer.WriteNumber("weight", suc.weight);
+
+							writer.WriteEndObject();
+						}
+						writer.WriteEndArray();
+
+						// Running total array
+						writer.WriteStartArray("running");
+						foreach (int cur in link.runningTotal) {
+							writer.WriteNumberValue(cur);
+						}
+						writer.WriteEndArray();
 
 						writer.WriteEndObject();
 					}
 					writer.WriteEndArray();
 
-					// Running total array
-					writer.WriteStartArray("running");
-					foreach (int cur in link.runningTotal) {
-						writer.WriteNumberValue(cur);
+					// Seeds
+					writer.WriteStartArray("seeds");
+					foreach (int s in value.seeds) {
+						writer.WriteNumberValue(s);
 					}
 					writer.WriteEndArray();
 
 					writer.WriteEndObject();
 				}
-				writer.WriteEndArray();
-
-				// Seeds
-				writer.WriteStartArray("seeds");
-				foreach (int s in value.seeds) {
-					writer.WriteNumberValue(s);
-				}
-				writer.WriteEndArray();
-
-				writer.WriteEndObject();
 			}
 		}
 	}
