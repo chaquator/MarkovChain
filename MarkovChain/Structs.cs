@@ -13,6 +13,8 @@ using System.Diagnostics;
 
 namespace MarkovChain {
 	namespace Structs {
+		// TODO: change as many as necessary fields inside namespace to internal
+
 		/// <summary>
 		/// Master MarkovStructure, has associated dictioanry, array of links,
 		/// and an array of indeces to links array which are all "starers"
@@ -206,7 +208,7 @@ namespace MarkovChain {
 			}
 
 			public MarkovStructure combine(MarkovStructure other) {
-				// TODO: design combine function
+				// TODO: finish design and write proper comments of this function
 
 				//	What to do with dictionary
 				//		Create a map for other dictionary which maps every index in other's dic to a index in combined dic
@@ -215,47 +217,88 @@ namespace MarkovChain {
 				//		All of own ngrams will not need to be changed
 				//		Will need to go through other's ngrams and remake with new indeces
 				//		Will need to make a combined list of ngrams, store the unique ones resulting from remap
+				//		In summary, combined ngrams and combined ngrammap
 				//	The chain links
 				//		All of own links will need not be changed
 				//		... finish here 
 				//	Then seeds
 				//		Just combine seeds?
 				//
-				//	Create combined dic & remap dic, populate both
-				//	Go through other's dictionary and populate onto combined dictionary
-				//		If dicmap does not have current from other then
-				//			Insert current into combined dictionary and map current to corresponding index in dicmap
+				//	Create combined structures, populate with own
+				//		Create combined dic & remap dic, populate both
+				//		Create combined ngrams & remap, populate both
+				//	Combine other's structures
+				//		Dictionary - Go through other's dictionary and populate onto combined dictionary
+				//			If dicmap does not have current from other then
+				//				Insert current into combined dictionary and map current to corresponding index in dicmap
+				//		Dic Remap - Create remap array which maps other's indeces to combined indeces
+				//		Ngrams - Go through other's ngrams (current)
+				//			Remap current ngram to new indeces
+				//			If current remapped is not in ngrammap,
+				//				Add to end of combined ngrams, set corresponding index in map
 
 				// Combined dictionary, dicmap
-				List<string> combined_dictionary = new List<string>(dictionary.Length + other.dictionary.Length);
+				List<string> combined_dictionary = new List<string>(dictionary) {
+					Capacity = dictionary.Length + other.dictionary.Length
+				};
 				Dictionary<string, int> combined_dicmap = new Dictionary<string, int>(dictionary.Length + other.dictionary.Length);
 
-				// i know someones gonna look at this garbage and say im full of myself to using so much concurrency only because "waah waah what if the dataset is huge"
-				Task populate_dictionary = Task.Run(() => {
-					// Populate dictionary with own dictionary
-					Parallel.For(0, dictionary.Length, (index) => {
-						combined_dictionary[index] = dictionary[index];
-					});
-				});
+				// Combined ngrams, ngrammap
+				List<NGram> combined_ngrams = new List<NGram>(grams) {
+					Capacity = grams.Length + other.grams.Length
+				};
+				Dictionary<NGram, int> combined_ngrammap = new Dictionary<NGram, int>(grams.Length + other.grams.Length);
 
 				Task populate_dicmap = Task.Run(() => {
-					// Populate dicmap
 					int i = 0;
 					foreach (string w in dictionary) {
 						combined_dicmap[w] = i++;
 					}
 				});
 
-				populate_dictionary.Wait();
-				populate_dicmap.Wait();
+				Task populate_ngrammap = Task.Run(() => {
+					int i = 0;
+					foreach (NGram gram in grams) {
+						combined_ngrammap[gram] = i++;
+					}
+				});
+
+				Task.WaitAll(populate_dicmap, populate_ngrammap);
+
+				// TODO: evaulate whether all this concurrency performs better
 
 				// Go through other's dictionary, populate onto combined
-				foreach (string w in dictionary) {
-					if(!combined_dicmap.ContainsKey(w)) {
+				foreach (string w in other.dictionary) {
+					if (!combined_dicmap.ContainsKey(w)) {
 						combined_dicmap[w] = combined_dictionary.Count;
 						combined_dictionary.Add(w);
 					}
 				}
+
+				// Remap array that maps other's index to combined index (remap[i] = j where other[i] = combined[j])
+				int[] other_dic_remap = new int[other.dictionary.Length];
+				Parallel.For(0, other_dic_remap.Length, (index) => {
+					other_dic_remap[index] = combined_dicmap[other.dictionary[index]];
+				});
+
+				// Go through other's ngrams, populate onto combined
+				foreach (NGram gram in other.grams) {
+					// Remap indeces in current gram to combined
+					int[] g = gram.gram.Select((e) => other_dic_remap[e]).ToArray();
+
+					// Create new ngram with this remap
+					NGram remap = new NGram(g);
+					if(!combined_ngrammap.ContainsKey(gram)) {
+						combined_ngrammap[gram] = combined_ngrams.Count;
+						combined_ngrams.Add(gram);
+					}
+				}
+
+				// Create other ngram remap
+				int[] other_ngram_remap = new int[other.grams.Length];
+				Parallel.For(0, other_dic_remap.Length, (index) => {
+					other_ngram_remap[index] = combined_ngrammap[other.grams[index]];
+				});
 
 				// TODO: finish the rest of combine function
 
@@ -307,6 +350,7 @@ namespace MarkovChain {
 				// Populate successors
 				List<NGramSuccessor> sucset = new List<NGramSuccessor>(prototype_successors.Count);
 
+				// Add successors in sorted form
 				NGramSuccessor add;
 				int bs; // index to binary search for
 				foreach (var successor in prototype_successors) {
@@ -329,6 +373,8 @@ namespace MarkovChain {
 				}
 			}
 
+			// Precondition: successors are sorted highest weight to lowest,
+			// Running totals array is also correct
 			public MarkovSegment(int ngram, NGramSuccessor[] sucs, int[] runtot) {
 				current_ngram = ngram;
 				successors = sucs;
