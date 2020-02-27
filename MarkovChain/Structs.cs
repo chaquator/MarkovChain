@@ -220,7 +220,12 @@ namespace MarkovChain {
 				//		In summary, combined ngrams and combined ngrammap
 				//	The chain links
 				//		All of own links will need not be changed
-				//		... finish here 
+				//		For the other, there are two cases based on associated ngram: unique to combined, not unique
+				//			Case can be determined by index > own.grams.Length
+				//		For unique, place at end sorted by associated index
+				//			TODO: determine if GenerateSequence method needs to be changed to prevent strict need
+				//		For non unique, combine markovsegments
+				//			TODO: make combine method for markovsegments
 				//	Then seeds
 				//		Just combine seeds?
 				//
@@ -315,18 +320,18 @@ namespace MarkovChain {
 			/// Index which points to associated ngram in master
 			/// markov structure
 			/// </summary>
-			public readonly int current_ngram;
+			internal readonly int current_ngram;
 
 			/// <summary>
 			/// Sorted array of ngrams which succeed given ngram, along with their relatively frequency
 			/// </summary>
-			public readonly NGramSuccessor[] successors;
+			internal readonly NGramSuccessor[] successors;
 
 			/// <summary>
 			/// Array which is used for random selection which contains running total of weights
 			/// for each index in the successors
 			/// </summary>
-			public readonly int[] runningTotal;
+			internal readonly int[] runningTotal;
 
 			/// <summary>
 			/// Selects random successor paying attention to weight
@@ -379,6 +384,15 @@ namespace MarkovChain {
 				current_ngram = ngram;
 				successors = sucs;
 				runningTotal = runtot;
+			}
+
+			public MarkovSegment combine(MarkovSegment other) {
+				// TODO: complete combine method for markovsegment
+				//	Discard running totals
+				//	Use own's successors as base
+				//	(we need to figure out how to deal with duplicates by index, they may not be the same weight)
+				//	Rebuild running totals list
+				return null;
 			}
 		}
 
