@@ -7,7 +7,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 
 namespace MarkovChain.Structs {
@@ -45,7 +44,7 @@ namespace MarkovChain.Structs {
 		/// dicitonary to be strung together
 		/// </summary>
 		/// <returns></returns>
-		public int[] GenerateSqeuence(Random rand) {
+		private int[] GenerateSqeuence(Random rand) {
 			//	Start with sentence prototype as int list, curgram
 			//	Get seed (will be uniform probability, for now at least)
 			//	Set curgram to seed
@@ -75,7 +74,7 @@ namespace MarkovChain.Structs {
 			}
 
 			// Set curgram to successor
-			curgram_i = chain_links[chain_links[curgram_i].randomSuccessor().successor_index].current_ngram; // This needs some restructuring in the classes
+			curgram_i = chain_links[curgram_i].randomSuccessor().successor_index;
 			curgram_l = grams[curgram_i].gram;
 
 			// While curgram's last index isn't -1 (end of sentence)
@@ -98,7 +97,7 @@ namespace MarkovChain.Structs {
 		/// </summary>
 		/// <param name="seq"></param>
 		/// <returns></returns>
-		public string SequenceToString(int[] seq) {
+		private string SequenceToString(int[] seq) {
 			StringBuilder sb = new StringBuilder();
 
 			for (int index = 0; index < seq.Length; ++index) {
@@ -116,6 +115,19 @@ namespace MarkovChain.Structs {
 		/// <returns></returns>
 		public string GenerateSentence(Random rand) {
 			return SequenceToString(GenerateSqeuence(rand));
+		}
+
+		/// <summary>
+		/// Reads JSON file into structure
+		/// </summary>
+		/// <param name="filename"></param>
+		/// <returns></returns>
+		public static MarkovStructure ReadFile(string filename) {
+			using (FileStream fs = new FileStream(filename, FileMode.Open)) {
+				JsonSerializerOptions jssropt = new JsonSerializerOptions();
+				jssropt.Converters.Add(new Meta.MarkovStructureJsonConverter());
+				return JsonSerializer.DeserializeAsync<MarkovStructure>(fs, jssropt).Result;
+			}
 		}
 
 		/// <summary>
@@ -151,17 +163,125 @@ namespace MarkovChain.Structs {
 			return JsonSerializer.Serialize<MarkovStructure>(this, jssropt);
 		}
 
-		/// <summary>
-		/// Reads JSON file into structure
-		/// </summary>
-		/// <param name="filename"></param>
-		/// <returns></returns>
-		public static MarkovStructure ReadFile(string filename) {
-			using (FileStream fs = new FileStream(filename, FileMode.Open)) {
-				JsonSerializerOptions jssropt = new JsonSerializerOptions();
-				jssropt.Converters.Add(new Meta.MarkovStructureJsonConverter());
-				return JsonSerializer.DeserializeAsync<MarkovStructure>(fs, jssropt).Result;
+		public MarkovStructure Combine(MarkovStructure other) {
+			// TOOD: add summary, create unit test
+
+			// --- Dictionary combining
+
+			// Combined dictionary, dicmap
+			List<string> combined_dictionary = new List<string>(dictionary) {
+				Capacity = dictionary.Length + other.dictionary.Length
+			};
+			Dictionary<string, int> dicmap = new Dictionary<string, int>(dictionary.Length + other.dictionary.Length);
+
+			// Populate dicmap
+			int i = 0;
+			foreach (string w in dictionary) {
+				dicmap[w] = i++;
 			}
+
+			// Go through other's dictionary, populate onto combined
+			foreach (string w in other.dictionary) {
+				if (!dicmap.ContainsKey(w)) {
+					dicmap[w] = combined_dictionary.Count;
+					combined_dictionary.Add(w);
+				}
+			}
+
+			// Remap array that maps other's index to combined index (remap[i] = j where other[i] = combined[j])
+			int[] dic_remap = new int[other.dictionary.Length];
+			for (int index = 0; index < dic_remap.Length; ++index) {
+				string others_cur_word = other.dictionary[index];
+				dic_remap[index] = dicmap[others_cur_word];
+			}
+
+			// --- NGram Combining
+
+			// Combined ngrams, ngrammap
+			List<NGram> combined_ngrams = new List<NGram>(grams) {
+				Capacity = grams.Length + other.grams.Length
+			};
+			Dictionary<NGram, int> ngrammap = new Dictionary<NGram, int>(grams.Length + other.grams.Length);
+
+			// Populate gram map
+			i = 0;
+			foreach (NGram gram in grams) {
+				ngrammap[gram] = i++;
+			}
+
+			// Go through other's ngrams, populate onto combined
+			foreach (NGram gram in other.grams) {
+				// Remap indeces in current gram to combined
+				int[] g = gram.gram.Select((e) => dic_remap[e]).ToArray();
+
+				// Create new ngram with this remap
+				NGram remap = new NGram(g);
+				if (!ngrammap.ContainsKey(gram)) {
+					ngrammap[gram] = combined_ngrams.Count;
+					combined_ngrams.Add(gram);
+				}
+			}
+
+			// Create other ngram remap
+			int[] ngram_remap = new int[other.grams.Length];
+			Parallel.For(0, dic_remap.Length, (index) => {
+				ngram_remap[index] = ngrammap[other.grams[index]];
+			});
+
+			// --- Chain links combining
+
+			//	Other's unique chain links will not need to be touched
+			//		Can tell if it's unique by testing whether remap index >= original.length (this is because ngrams and chain links are associated together)
+			//	For those which need to be comebined, use MarkovSegment combine method
+
+			List<MarkovSegment> combined_links = new List<MarkovSegment>(chain_links) {
+				Capacity = chain_links.Length + other.chain_links.Length
+			};
+			Dictionary<MarkovSegment, int> linkmap = new Dictionary<MarkovSegment, int>(chain_links.Length + other.chain_links.Length);
+
+			// Populate linkmap with own
+			i = 0;
+			foreach (MarkovSegment link in chain_links) {
+				linkmap[link] = i++;
+			}
+
+			// Populate linkmap with other
+			ConcurrentQueue<MarkovSegment> add_queue = new ConcurrentQueue<MarkovSegment>();
+			Parallel.For(0, other.chain_links.Length, (index) => {
+				int remap = ngram_remap[index];
+
+				MarkovSegment other_seg = other.chain_links[index];
+
+				if(remap >= chain_links.Length) {
+					// If chain link is for a new ngram, add at end
+					add_queue.Enqueue(other_seg);
+				} else {
+					MarkovSegment own_seg = chain_links[remap];
+					// Otherwise, combine the segments and replace
+					MarkovSegment replace = own_seg.combine(other_seg, ngram_remap);
+					combined_links[remap] = replace;
+				}
+			});
+			combined_links.AddRange(add_queue);
+
+			// --- Seed combining
+
+			//	Run the other's seeds through ngram remap,
+			//	Any of other's seeds which are unique (larger than original seed's length), add to end
+
+			List<int> combined_seeds = new List<int>(seeds) {
+				Capacity = seeds.Length + other.seeds.Length
+			};
+
+			combined_seeds.AddRange(from oseed in other.seeds
+									where ngram_remap[oseed] >= seeds.Length
+									select oseed);
+
+			// Put it all together
+			return new MarkovStructure(combined_dictionary.ToArray(),
+										combined_ngrams.ToArray(),
+										combined_links.ToArray(),
+										combined_seeds.ToArray());
 		}
 
 		/// <summary>
@@ -186,7 +306,7 @@ namespace MarkovChain.Structs {
 			chain_links = new MarkovSegment[grams.Length];
 			Parallel.For(0, grams.Length,
 				(ind) => {
-					chain_links[ind] = new MarkovSegment(ind, prototype_chainlinks[ind]);
+					chain_links[ind] = new MarkovSegment(prototype_chainlinks[ind]);
 				}
 			);
 
@@ -194,114 +314,11 @@ namespace MarkovChain.Structs {
 			seeds = sds.Keys.ToArray();
 		}
 
-		public MarkovStructure(string[] dic, NGram[] grms, MarkovSegment[] links, int[] sds) {
+		internal MarkovStructure(string[] dic, NGram[] grms, MarkovSegment[] links, int[] sds) {
 			dictionary = dic;
 			grams = grms;
 			chain_links = links;
 			seeds = sds;
-		}
-
-		public MarkovStructure combine(MarkovStructure other) {
-			// TODO: finish design and write proper comments of this function
-
-			//	What to do with dictionary
-			//		Create a map for other dictionary which maps every index in other's dic to a index in combined dic
-			//			All combined dic starts as current's dic
-			//	Then ngrams
-			//		All of own ngrams will not need to be changed
-			//		Will need to go through other's ngrams and remake with new indeces
-			//		Will need to make a combined list of ngrams, store the unique ones resulting from remap
-			//		In summary, combined ngrams and combined ngrammap
-			//	The chain links
-			//		All of own links will need not be changed
-			//		For the other, there are two cases based on associated ngram: unique to combined, not unique
-			//			Case can be determined by index > own.grams.Length
-			//		For unique, place at end sorted by associated index
-			//			TODO: determine if GenerateSequence method needs to be changed to prevent strict need
-			//		For non unique, combine markovsegments
-			//			TODO: make combine method for markovsegments
-			//	Then seeds
-			//		Just combine seeds?
-			//
-			//	Create combined structures, populate with own
-			//		Create combined dic & remap dic, populate both
-			//		Create combined ngrams & remap, populate both
-			//	Combine other's structures
-			//		Dictionary - Go through other's dictionary and populate onto combined dictionary
-			//			If dicmap does not have current from other then
-			//				Insert current into combined dictionary and map current to corresponding index in dicmap
-			//		Dic Remap - Create remap array which maps other's indeces to combined indeces
-			//		Ngrams - Go through other's ngrams (current)
-			//			Remap current ngram to new indeces
-			//			If current remapped is not in ngrammap,
-			//				Add to end of combined ngrams, set corresponding index in map
-
-			// Combined dictionary, dicmap
-			List<string> combined_dictionary = new List<string>(dictionary) {
-				Capacity = dictionary.Length + other.dictionary.Length
-			};
-			Dictionary<string, int> combined_dicmap = new Dictionary<string, int>(dictionary.Length + other.dictionary.Length);
-
-			// Combined ngrams, ngrammap
-			List<NGram> combined_ngrams = new List<NGram>(grams) {
-				Capacity = grams.Length + other.grams.Length
-			};
-			Dictionary<NGram, int> combined_ngrammap = new Dictionary<NGram, int>(grams.Length + other.grams.Length);
-
-			Task populate_dicmap = Task.Run(() => {
-				int i = 0;
-				foreach (string w in dictionary) {
-					combined_dicmap[w] = i++;
-				}
-			});
-
-			Task populate_ngrammap = Task.Run(() => {
-				int i = 0;
-				foreach (NGram gram in grams) {
-					combined_ngrammap[gram] = i++;
-				}
-			});
-
-			Task.WaitAll(populate_dicmap, populate_ngrammap);
-
-			// TODO: evaulate whether all this concurrency performs better
-
-			// Go through other's dictionary, populate onto combined
-			foreach (string w in other.dictionary) {
-				if (!combined_dicmap.ContainsKey(w)) {
-					combined_dicmap[w] = combined_dictionary.Count;
-					combined_dictionary.Add(w);
-				}
-			}
-
-			// Remap array that maps other's index to combined index (remap[i] = j where other[i] = combined[j])
-			int[] other_dic_remap = new int[other.dictionary.Length];
-			Parallel.For(0, other_dic_remap.Length, (index) => {
-				other_dic_remap[index] = combined_dicmap[other.dictionary[index]];
-			});
-
-			// Go through other's ngrams, populate onto combined
-			foreach (NGram gram in other.grams) {
-				// Remap indeces in current gram to combined
-				int[] g = gram.gram.Select((e) => other_dic_remap[e]).ToArray();
-
-				// Create new ngram with this remap
-				NGram remap = new NGram(g);
-				if (!combined_ngrammap.ContainsKey(gram)) {
-					combined_ngrammap[gram] = combined_ngrams.Count;
-					combined_ngrams.Add(gram);
-				}
-			}
-
-			// Create other ngram remap
-			int[] other_ngram_remap = new int[other.grams.Length];
-			Parallel.For(0, other_dic_remap.Length, (index) => {
-				other_ngram_remap[index] = combined_ngrammap[other.grams[index]];
-			});
-
-			// TODO: finish the rest of combine function
-
-			return null;
 		}
 	}
 
@@ -309,13 +326,7 @@ namespace MarkovChain.Structs {
 	/// Single segment in overall MarkovStructure, used in tandem with master
 	/// array to assemble sentence
 	/// </summary>
-	public class MarkovSegment {
-		/// <summary>
-		/// Index which points to associated ngram in master
-		/// markov structure
-		/// </summary>
-		internal readonly int current_ngram;
-
+	internal class MarkovSegment {
 		/// <summary>
 		/// Sorted array of ngrams which succeed given ngram, along with their relatively frequency
 		/// </summary>
@@ -332,19 +343,17 @@ namespace MarkovChain.Structs {
 		/// </summary>
 		/// <remarks>Hopscotch selection from https://blog.bruce-hill.com/a-faster-weighted-random-choice </remarks>
 		/// <returns>Returns a chain link representing the successor</returns>
-		public NGramSuccessor randomSuccessor() {
+		internal NGramSuccessor randomSuccessor() {
 			return Utils.RandomWeightedChoice(successors, runningTotal, (x) => x.weight);
 		}
 
 		/// <summary>
 		/// Constructor of MarkovSegment, meant to be used by MarkovStructure
 		/// </summary>
-		/// <param name="ngram"></param>
 		/// <param name="prototype_successors"></param>
-		public MarkovSegment(int ngram, ConcurrentDictionary<int, int> prototype_successors) {
+		internal MarkovSegment(ConcurrentDictionary<int, int> prototype_successors) {
 			// key is index of current ngram
 			// value is map<index of successor, associated weight>
-			current_ngram = ngram;
 
 			// Populate successors
 			List<NGramSuccessor> sucset = new List<NGramSuccessor>(prototype_successors.Count);
@@ -355,7 +364,7 @@ namespace MarkovChain.Structs {
 			foreach (var successor in prototype_successors) {
 				add = new NGramSuccessor(successor.Key, successor.Value);
 
-				bs = sucset.BinarySearch(add, new Meta.ReverseNGramSuccessorComparer());
+				bs = sucset.BinarySearch(add, new NGramSuccessor.ReverseComparer());
 				bs = (bs == -1) ? 0 : (bs < 0) ? ~bs : bs;
 
 				sucset.Insert(bs, add);
@@ -374,18 +383,22 @@ namespace MarkovChain.Structs {
 
 		// Precondition: successors are sorted highest weight to lowest,
 		// Running totals array is also correct
-		public MarkovSegment(int ngram, NGramSuccessor[] sucs, int[] runtot) {
-			current_ngram = ngram;
+		internal MarkovSegment(NGramSuccessor[] sucs, int[] runtot) {
 			successors = sucs;
 			runningTotal = runtot;
 		}
 
-		public MarkovSegment combine(MarkovSegment other, int[] other_ngram_remap) {
-			// TODO: complete combine method for markovsegment
-			//	Discard running totals
-			//	Use own's successors as base
-			//	(we need to figure out how to deal with duplicates by index, they may not be the same weight)
-			//	Rebuild running totals list
+		internal MarkovSegment combine(MarkovSegment other, int[] ngram_remap) {
+			// TODO: finish, add summary, create unit test
+
+			//	Create combined list
+			//	Create map, successor index -> NGramSuccessor struct
+			//	Adding from other ->
+			//		If conflict, combine ->
+			//			Add weights
+			//		Else, add at end
+			//	Rebuild running totals
+
 			return null;
 		}
 	}
@@ -393,24 +406,30 @@ namespace MarkovChain.Structs {
 	/// <summary>
 	/// Successor struct, couples ngram
 	/// </summary>
-	public struct NGramSuccessor : IComparable<NGramSuccessor> {
+	internal struct NGramSuccessor : IComparable<NGramSuccessor> {
 		/// <summary>
-		/// Index points to associated MarkovStructure chain_links index
+		/// Index points to associated MarkovStructure ngram/chain_link index
 		/// </summary>
-		public readonly int successor_index;
+		internal readonly int successor_index;
 
 		/// <summary>
 		/// Weight whos magnitude reflects relative frequency of successor
 		/// </summary>
-		public readonly int weight;
+		internal readonly int weight;
 
-		public NGramSuccessor(int suc, int w) {
+		internal NGramSuccessor(int suc, int w) {
 			successor_index = suc;
 			weight = w;
 		}
 
 		int IComparable<NGramSuccessor>.CompareTo(NGramSuccessor o) {
 			return weight.CompareTo(o.weight);
+		}
+
+		internal class ReverseComparer : IComparer<NGramSuccessor> {
+			public int Compare(NGramSuccessor x, NGramSuccessor y) {
+				return y.weight.CompareTo(x.weight);
+			}
 		}
 	}
 

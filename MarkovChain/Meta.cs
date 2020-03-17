@@ -5,11 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace MarkovChain.Structs.Meta {
-	public class ReverseNGramSuccessorComparer : IComparer<NGramSuccessor> {
-		public int Compare(NGramSuccessor x, NGramSuccessor y) {
-			return y.weight.CompareTo(x.weight);
-		}
-	}
+	
 
 	public class MarkovStructureJsonConverter : JsonConverter<MarkovStructure> {
 		public override bool CanConvert(Type typeToConvert) {
@@ -26,7 +22,6 @@ namespace MarkovChain.Structs.Meta {
 			List<int> curgram;
 
 			List<MarkovSegment> links = new List<MarkovSegment>();
-			int current_cur;
 			List<NGramSuccessor> current_succesors;
 			List<int> current_running;
 			int current_sucind;
@@ -84,13 +79,6 @@ namespace MarkovChain.Structs.Meta {
 
 					// Exit when at end of array (token isnt start of object)
 					if (r.TokenType != JsonTokenType.StartObject) break;
-
-					// Current index property name
-					r.Read();
-
-					// Current index value
-					r.Read();
-					current_cur = r.GetInt32();
 
 					// Parse successors
 
@@ -153,7 +141,7 @@ namespace MarkovChain.Structs.Meta {
 					// End of MarkovSegment object
 					r.Read();
 
-					links.Add(new MarkovSegment(current_cur, current_succesors.ToArray(), current_running.ToArray()));
+					links.Add(new MarkovSegment(current_succesors.ToArray(), current_running.ToArray()));
 				}
 
 				// Ends ready to parse next property
@@ -230,9 +218,6 @@ namespace MarkovChain.Structs.Meta {
 			writer.WriteStartArray("links");
 			foreach (MarkovSegment link in value.chain_links) {
 				writer.WriteStartObject();
-
-				// Current ngram
-				writer.WriteNumber("current", link.current_ngram);
 
 				// Successors
 				writer.WriteStartArray("successors");
