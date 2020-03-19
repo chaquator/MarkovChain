@@ -252,13 +252,13 @@ namespace MarkovChain.Structs {
 
 				MarkovSegment other_seg = other.chain_links[index];
 
-				if(remap >= chain_links.Length) {
+				if (remap >= chain_links.Length) {
 					// If chain link is for a new ngram, add at end
 					add_queue.Enqueue(other_seg);
 				} else {
 					MarkovSegment own_seg = chain_links[remap];
 					// Otherwise, combine the segments and replace
-					MarkovSegment replace = own_seg.combine(other_seg, ngram_remap);
+					MarkovSegment replace = own_seg.combine(other_seg, ngram_remap, grams.Length);
 					combined_links[remap] = replace;
 				}
 			});
@@ -361,10 +361,11 @@ namespace MarkovChain.Structs {
 			// Add successors in sorted form
 			NGramSuccessor add;
 			int bs; // index to binary search for
+			NGramSuccessor.ReverseComparer rev = new NGramSuccessor.ReverseComparer();
 			foreach (var successor in prototype_successors) {
 				add = new NGramSuccessor(successor.Key, successor.Value);
 
-				bs = sucset.BinarySearch(add, new NGramSuccessor.ReverseComparer());
+				bs = sucset.BinarySearch(add, rev);
 				bs = (bs == -1) ? 0 : (bs < 0) ? ~bs : bs;
 
 				sucset.Insert(bs, add);
@@ -388,18 +389,59 @@ namespace MarkovChain.Structs {
 			runningTotal = runtot;
 		}
 
-		internal MarkovSegment combine(MarkovSegment other, int[] ngram_remap) {
-			// TODO: finish, add summary, create unit test
+		// TODO: add summary, create unit test
+		internal MarkovSegment combine(MarkovSegment other, int[] ngram_remap, int own_ngram_length) {
+			// Combined list, map
+			List<NGramSuccessor> combined_successors = new List<NGramSuccessor>(successors) {
+				Capacity = successors.Length + other.successors.Length
+			};
+			Dictionary<int, int> sucmap = new Dictionary<int, int>(successors.Length + other.successors.Length);
 
-			//	Create combined list
-			//	Create map, successor index -> NGramSuccessor struct
-			//	Adding from other ->
-			//		If conflict, combine ->
-			//			Add weights
-			//		Else, add at end
-			//	Rebuild running totals
+			// Populate map with own
+			int ind = 0;
+			foreach (NGramSuccessor suc in successors) {
+				// TODO: i dont think it should happen but each entry in here should be unique
+				sucmap[suc.successor_index] = ind++;
+			}
 
-			return null;
+			void sortAdd(NGramSuccessor add, List<NGramSuccessor> list, IComparer<NGramSuccessor> comp) {
+				int bs = list.BinarySearch(add, comp);
+				bs = (bs == -1) ? 0 : (bs < 0) ? ~bs : bs;
+
+				list.Insert(bs, add);
+			}
+			NGramSuccessor.ReverseComparer rev = new NGramSuccessor.ReverseComparer();
+
+			// Combine with other
+			foreach (NGramSuccessor suc in other.successors) {
+				int remap = ngram_remap[suc.successor_index];
+
+				if (remap >= own_ngram_length) {
+					// Successor associated with unique ngram from other
+					// Can avoid a dictionary lookup
+					sortAdd(new NGramSuccessor(remap, suc.weight), combined_successors, rev);
+				} else {
+					// Associated with ngram from original
+					if (sucmap.TryGetValue(remap, out int index)) {
+						// NGram from original is a successor of this particular NGram in original
+						NGramSuccessor comb = combined_successors[index];
+						comb.weight += suc.weight;
+					} else {
+						// NGram from original is NOT a successor of this NGram in original
+						sortAdd(new NGramSuccessor(remap, suc.weight), combined_successors, rev);
+					}
+				}
+			}
+
+			// Rebuild running totals
+			int total_weight = 0;
+			int[] runningTotal = new int[combined_successors.Count];
+			for (ind = 0; ind < runningTotal.Length; ++ind) {
+				total_weight += combined_successors[ind].weight;
+				runningTotal[ind] = total_weight;
+			}
+
+			return new MarkovSegment(combined_successors.ToArray(), runningTotal);
 		}
 	}
 
@@ -415,7 +457,7 @@ namespace MarkovChain.Structs {
 		/// <summary>
 		/// Weight whos magnitude reflects relative frequency of successor
 		/// </summary>
-		internal readonly int weight;
+		internal int weight;
 
 		internal NGramSuccessor(int suc, int w) {
 			successor_index = suc;
