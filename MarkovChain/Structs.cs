@@ -258,7 +258,7 @@ namespace MarkovChain.Structs {
 				} else {
 					MarkovSegment own_seg = chain_links[remap];
 					// Otherwise, combine the segments and replace
-					MarkovSegment replace = own_seg.combine(other_seg, ngram_remap, grams.Length);
+					MarkovSegment replace = own_seg.Combine(other_seg, ngram_remap, grams.Length);
 					combined_links[remap] = replace;
 				}
 			});
@@ -390,7 +390,7 @@ namespace MarkovChain.Structs {
 		}
 
 		// TODO: add summary, create unit test
-		internal MarkovSegment combine(MarkovSegment other, int[] ngram_remap, int own_ngram_length) {
+		public MarkovSegment Combine(MarkovSegment other, int[] ngram_remap, int own_ngram_length) {
 			// Combined list, map
 			List<NGramSuccessor> combined_successors = new List<NGramSuccessor>(successors) {
 				Capacity = successors.Length + other.successors.Length

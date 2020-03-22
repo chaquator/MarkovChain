@@ -24,7 +24,7 @@ namespace MarkovChain {
 				gram_size = 2,
 				outfile_markov = "test.markov"
 			};
-#if true
+#if flase
 			Ingesting.Pipeline pipe = new Ingesting.Pipeline(opts);
 			if (!pipe.Run()) {
 				Console.WriteLine("Some sort of error occured.");
@@ -40,6 +40,15 @@ namespace MarkovChain {
 				}
 			} while (Console.ReadKey().Key != ConsoleKey.Q);
 #endif
+
+			/* Unit test planning for MarkovStructure combine functions
+			 *	Unit tests for MarkovStructure Combine
+			 *		Test combining the same structure (small test, real test)
+			 *		Test combining completely different structures (small test, not really sure if it's possible to have a real test)
+			 *		Test combining structures with SOME overlap (small, large)
+			 *	Unit test for MarkovSegment Combine
+			 *		
+			 */
 
 			/*	TODO: Plan out fully fledged options and implement them
 			 *		-	Maybe ingest unique regex filters, can be some sort of input csv file idk
