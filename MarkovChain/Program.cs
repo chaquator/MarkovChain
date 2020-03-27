@@ -24,21 +24,28 @@ namespace MarkovChain {
 				gram_size = 2,
 				outfile_markov = "test.markov"
 			};
-#if flase
+#if false
 			Ingesting.Pipeline pipe = new Ingesting.Pipeline(opts);
 			if (!pipe.Run()) {
 				Console.WriteLine("Some sort of error occured.");
 			}
 
 			Structs.MarkovStructure resultant = pipe.finished_markovstruct;
-			//resultant.WriteFile(opts.outfile_markov);
+			resultant.WriteFile(opts.outfile_markov);
+
 
 			Random r = new Random();
 			do {
 				for (int j = 0; j < 1000; j++) {
-					Console.WriteLine(resultant.GenerateSentence(r));
+					Console.Out.WriteLine(resultant.GenerateSentence(r));
 				}
+				Console.Out.Flush();
 			} while (Console.ReadKey().Key != ConsoleKey.Q);
+#else
+			Structs.MarkovStructure A = Structs.MarkovStructure.ReadFile("A.markov");
+			Structs.MarkovStructure H = Structs.MarkovStructure.ReadFile("H.markov");
+			var C = A.Combine(H);
+			Console.WriteLine(H.ToString());
 #endif
 
 			/* Unit test planning for MarkovStructure combine functions
@@ -48,6 +55,16 @@ namespace MarkovChain {
 			 *		Test combining structures with SOME overlap (small, large)
 			 *	Unit test for MarkovSegment Combine
 			 *		
+			 *	Tests:
+			 *		A: small same structure -- OK
+			 *		B: big same structure
+			 *		C: small different
+			 *		~~D: big different?~~
+			 *		E: small overlap
+			 *		F: big overlap
+			 *		G: any with empty (if possible)
+			 *		H: based on A, rearrange dictionary and update structures to point to regular thing
+			 *		I: final test, when ingesting pipeline is reworked to handle multiple users, combine them all together`
 			 */
 
 			/*	TODO: Plan out fully fledged options and implement them

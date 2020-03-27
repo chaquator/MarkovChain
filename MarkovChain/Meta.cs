@@ -127,14 +127,14 @@ namespace MarkovChain.Structs.Meta {
 
 					current_running = new List<int>();
 
-					// Loop must begin where token to be is start of object
+					// Loop must begin where token to be is start of array
 					while (true) {
 						r.Read();
 
 						if (r.TokenType != JsonTokenType.Number) break;
 
 						// Read integer
-						r.Read();
+						// r.Read();
 						current_running.Add(r.GetInt32());
 					}
 

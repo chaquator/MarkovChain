@@ -8,9 +8,11 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 
+using System.Diagnostics;
+
 
 namespace MarkovChain.Structs {
-	// TODO: change as many as necessary fields inside namespace to internal
+	// TODO: within constructors of all objects, imeplement checks on valid data known by previous data (e.g. dictionary size)
 
 	/// <summary>
 	/// Master MarkovStructure, has associated dictioanry, array of links,
@@ -197,6 +199,8 @@ namespace MarkovChain.Structs {
 
 			// --- NGram Combining
 
+			// TODO: it's possible to combine ngrams and their links at the same time instead of doing more work
+
 			// Combined ngrams, ngrammap
 			List<NGram> combined_ngrams = new List<NGram>(grams) {
 				Capacity = grams.Length + other.grams.Length
@@ -212,57 +216,61 @@ namespace MarkovChain.Structs {
 			// Go through other's ngrams, populate onto combined
 			foreach (NGram gram in other.grams) {
 				// Remap indeces in current gram to combined
-				int[] g = gram.gram.Select((e) => dic_remap[e]).ToArray();
+				int[] g = gram.gram.Select((e) => (e == -1) ? -1 : dic_remap[e]).ToArray();
 
-				// Create new ngram with this remap
+				// Create new ngram with this remap, add to the dictionary if not there
 				NGram remap = new NGram(g);
-				if (!ngrammap.ContainsKey(gram)) {
-					ngrammap[gram] = combined_ngrams.Count;
-					combined_ngrams.Add(gram);
+				if (!ngrammap.ContainsKey(remap)) {
+					ngrammap[remap] = combined_ngrams.Count; // i++ is an acceptable alternative
+					combined_ngrams.Add(remap);
 				}
 			}
 
 			// Create other ngram remap
 			int[] ngram_remap = new int[other.grams.Length];
-			Parallel.For(0, dic_remap.Length, (index) => {
+			Parallel.For(0, ngram_remap.Length, (index) => {
 				ngram_remap[index] = ngrammap[other.grams[index]];
 			});
 
 			// --- Chain links combining
 
 			//	Other's unique chain links will not need to be touched
-			//		Can tell if it's unique by testing whether remap index >= original.length (this is because ngrams and chain links are associated together)
+			//		Can tell if it's unique by testing whether ngram remap index >= original.length
+			//		Remember that ngrams and the links are associated together despite being in seperate arrays (i.e. ngram[0] corresponds with links[0])
 			//	For those which need to be comebined, use MarkovSegment combine method
 
-			List<MarkovSegment> combined_links = new List<MarkovSegment>(chain_links) {
-				Capacity = chain_links.Length + other.chain_links.Length
-			};
-			Dictionary<MarkovSegment, int> linkmap = new Dictionary<MarkovSegment, int>(chain_links.Length + other.chain_links.Length);
+			MarkovSegment[] combined_links = new MarkovSegment[combined_ngrams.Count];
 
-			// Populate linkmap with own
-			i = 0;
-			foreach (MarkovSegment link in chain_links) {
-				linkmap[link] = i++;
-			}
+			// Populate combined_links with own
+			Parallel.For(0, combined_links.Length, (index) => {
+				combined_links[index] = chain_links[index];
+			});
 
 			// Populate linkmap with other
-			ConcurrentQueue<MarkovSegment> add_queue = new ConcurrentQueue<MarkovSegment>();
-			Parallel.For(0, other.chain_links.Length, (index) => {
-				int remap = ngram_remap[index];
-
+			// TODO: make parallel when done testing
+			// Parallel.For(0, other.chain_links.Length, (index) => {
+			for (int index = 0; index < other.chain_links.Length; ++index) {
 				MarkovSegment other_seg = other.chain_links[index];
 
-				if (remap >= chain_links.Length) {
-					// If chain link is for a new ngram, add at end
-					add_queue.Enqueue(other_seg);
+				int remap;
+				if ((remap = ngram_remap[index]) >= chain_links.Length) {
+					// Unique link needs to be associated with its remap spot
+					combined_links[remap] = other_seg;
 				} else {
 					MarkovSegment own_seg = chain_links[remap];
 					// Otherwise, combine the segments and replace
 					MarkovSegment replace = own_seg.Combine(other_seg, ngram_remap, grams.Length);
+
+					// Replace link in relevant structures
 					combined_links[remap] = replace;
 				}
-			});
-			combined_links.AddRange(add_queue);
+			}
+			// });
+
+			// TODO: remove when done testing
+			if(combined_links.Contains(null)) {
+				Console.WriteLine("yeah crazy");
+			}
 
 			// --- Seed combining
 
@@ -280,7 +288,7 @@ namespace MarkovChain.Structs {
 			// Put it all together
 			return new MarkovStructure(combined_dictionary.ToArray(),
 										combined_ngrams.ToArray(),
-										combined_links.ToArray(),
+										combined_links,
 										combined_seeds.ToArray());
 		}
 
@@ -391,7 +399,11 @@ namespace MarkovChain.Structs {
 
 		// TODO: add summary, create unit test
 		public MarkovSegment Combine(MarkovSegment other, int[] ngram_remap, int own_ngram_length) {
+			if (successors.Length == 0) return other;
+			if (other.successors.Length == 0) return this;
+
 			// Combined list, map
+			// TODO: consider switching to BST structure (likely SortedSet) to prevent O(n) of list insert???
 			List<NGramSuccessor> combined_successors = new List<NGramSuccessor>(successors) {
 				Capacity = successors.Length + other.successors.Length
 			};
@@ -400,7 +412,7 @@ namespace MarkovChain.Structs {
 			// Populate map with own
 			int ind = 0;
 			foreach (NGramSuccessor suc in successors) {
-				// TODO: i dont think it should happen but each entry in here should be unique
+				// TODO: i dont think it should happen but each entry in here should be unique, maybe some sort of testing whether sucmap already has the index
 				sucmap[suc.successor_index] = ind++;
 			}
 
@@ -416,6 +428,8 @@ namespace MarkovChain.Structs {
 			foreach (NGramSuccessor suc in other.successors) {
 				int remap = ngram_remap[suc.successor_index];
 
+				// TODO: remap is wrong or something, investigate
+
 				if (remap >= own_ngram_length) {
 					// Successor associated with unique ngram from other
 					// Can avoid a dictionary lookup
@@ -426,6 +440,8 @@ namespace MarkovChain.Structs {
 						// NGram from original is a successor of this particular NGram in original
 						NGramSuccessor comb = combined_successors[index];
 						comb.weight += suc.weight;
+						combined_successors[index] = comb;
+						// TODO: adding weight could put it out of order!
 					} else {
 						// NGram from original is NOT a successor of this NGram in original
 						sortAdd(new NGramSuccessor(remap, suc.weight), combined_successors, rev);
@@ -445,6 +461,7 @@ namespace MarkovChain.Structs {
 		}
 	}
 
+	[DebuggerDisplay("S: {successor_index} W: {weight}")]
 	/// <summary>
 	/// Successor struct, couples ngram
 	/// </summary>
@@ -470,7 +487,8 @@ namespace MarkovChain.Structs {
 
 		internal class ReverseComparer : IComparer<NGramSuccessor> {
 			public int Compare(NGramSuccessor x, NGramSuccessor y) {
-				return y.weight.CompareTo(x.weight);
+				// return y.weight.CompareTo(x.weight);
+				return (x.weight > y.weight) ? -1 : 1;
 			}
 		}
 	}
