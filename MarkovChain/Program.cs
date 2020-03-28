@@ -1,7 +1,6 @@
 ﻿using System;
 
-using System.Collections;
-using System.Collections.Generic;
+using System.Linq;
 
 namespace MarkovChain {
 	class Program {
@@ -24,23 +23,11 @@ namespace MarkovChain {
 				gram_size = 2,
 				outfile_markov = "test.markov"
 			};
-#if false
-			Ingesting.Pipeline pipe = new Ingesting.Pipeline(opts);
-			if (!pipe.Run()) {
-				Console.WriteLine("Some sort of error occured.");
-			}
+#if true
+			int[] a = { 1, 2, 3, 4, 5 };
+			int[] b = a.Select(x => x * 2).ToArray();
 
-			Structs.MarkovStructure resultant = pipe.finished_markovstruct;
-			resultant.WriteFile(opts.outfile_markov);
-
-
-			Random r = new Random();
-			do {
-				for (int j = 0; j < 1000; j++) {
-					Console.Out.WriteLine(resultant.GenerateSentence(r));
-				}
-				Console.Out.Flush();
-			} while (Console.ReadKey().Key != ConsoleKey.Q);
+			Console.WriteLine($"a: {Utils.GCD(a)} b: {Utils.GCD(b)}");
 #else
 			Structs.MarkovStructure A = Structs.MarkovStructure.ReadFile("A.markov");
 			Structs.MarkovStructure H = Structs.MarkovStructure.ReadFile("H.markov");
@@ -63,7 +50,7 @@ namespace MarkovChain {
 			 *		E: small overlap
 			 *		F: big overlap
 			 *		G: any with empty (if possible)
-			 *		H: based on A, rearrange dictionary and update structures to point to regular thing
+			 *		H: based on A, rearrange dictionary and update structures to point to regular thing -- OK
 			 *		I: final test, when ingesting pipeline is reworked to handle multiple users, combine them all together`
 			 */
 

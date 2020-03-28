@@ -207,30 +207,30 @@ namespace MarkovChain.Structs {
 			};
 			Dictionary<NGram, int> ngrammap = new Dictionary<NGram, int>(grams.Length + other.grams.Length);
 
-			// Populate gram map
+			// Populate gram map with own grams
 			i = 0;
 			foreach (NGram gram in grams) {
 				ngrammap[gram] = i++;
 			}
 
-			// Go through other's ngrams, populate onto combined
+			// Go through other's ngrams, populate onto combined, and populate ngram remap
+			i = 0;
+			int[] ngram_remap = new int[other.grams.Length];
+			// TODO: consider parallelizing, would involve an add queue and a lock potentially
 			foreach (NGram gram in other.grams) {
-				// Remap indeces in current gram to combined
+				// Translate ngram using dictionary remap
 				int[] g = gram.gram.Select((e) => (e == -1) ? -1 : dic_remap[e]).ToArray();
-
-				// Create new ngram with this remap, add to the dictionary if not there
 				NGram remap = new NGram(g);
-				if (!ngrammap.ContainsKey(remap)) {
-					ngrammap[remap] = combined_ngrams.Count; // i++ is an acceptable alternative
+
+				if (ngrammap.TryGetValue(remap, out int index)) {
+					// If remapped ngram is not unique, remap points to it in combined
+					ngram_remap[i++] = index;
+				} else {
+					// If translated ngram is unique, add it to the end, remap points to it
+					ngram_remap[i++] = combined_ngrams.Count;
 					combined_ngrams.Add(remap);
 				}
 			}
-
-			// Create other ngram remap
-			int[] ngram_remap = new int[other.grams.Length];
-			Parallel.For(0, ngram_remap.Length, (index) => {
-				ngram_remap[index] = ngrammap[other.grams[index]];
-			});
 
 			// --- Chain links combining
 
@@ -268,7 +268,7 @@ namespace MarkovChain.Structs {
 			// });
 
 			// TODO: remove when done testing
-			if(combined_links.Contains(null)) {
+			if (combined_links.Contains(null)) {
 				Console.WriteLine("yeah crazy");
 			}
 
@@ -338,13 +338,13 @@ namespace MarkovChain.Structs {
 		/// <summary>
 		/// Sorted array of ngrams which succeed given ngram, along with their relatively frequency
 		/// </summary>
-		internal readonly NGramSuccessor[] successors;
+		internal NGramSuccessor[] successors;
 
 		/// <summary>
 		/// Array which is used for random selection which contains running total of weights
 		/// for each index in the successors
 		/// </summary>
-		internal readonly int[] runningTotal;
+		internal int[] runningTotal;
 
 		/// <summary>
 		/// Selects random successor paying attention to weight
@@ -353,6 +353,25 @@ namespace MarkovChain.Structs {
 		/// <returns>Returns a chain link representing the successor</returns>
 		internal NGramSuccessor randomSuccessor() {
 			return Utils.RandomWeightedChoice(successors, runningTotal, (x) => x.weight);
+		}
+
+		// Setup function which will normalize successors and compute running totals
+		private void _Setup(IEnumerable<NGramSuccessor> sucs) {
+			// TODO: stop going crazy with linq just do things properly
+
+			// Get GDC of weights
+			int GDC = Utils.GCD(sucs.Select<NGramSuccessor, int>(e => e.weight));
+
+			// Successors are divided by GDC
+			successors = sucs.Select(e => new NGramSuccessor(e.successor_index, e.weight/GDC)).ToArray();
+
+			// Compute running total
+			int total_weight = 0;
+			int[] runningTotal = new int[successors.Length];
+			for (int ind = 0; ind < runningTotal.Length; ++ind) {
+				total_weight += successors[ind].weight;
+				runningTotal[ind] = total_weight;
+			}
 		}
 
 		/// <summary>
@@ -367,31 +386,19 @@ namespace MarkovChain.Structs {
 			List<NGramSuccessor> sucset = new List<NGramSuccessor>(prototype_successors.Count);
 
 			// Add successors in sorted form
-			NGramSuccessor add;
-			int bs; // index to binary search for
 			NGramSuccessor.ReverseComparer rev = new NGramSuccessor.ReverseComparer();
-			foreach (var successor in prototype_successors) {
-				add = new NGramSuccessor(successor.Key, successor.Value);
+			foreach (var successor in prototype_successors) sucset.SortAdd(new NGramSuccessor(successor.Key, successor.Value), rev);
 
-				bs = sucset.BinarySearch(add, rev);
-				bs = (bs == -1) ? 0 : (bs < 0) ? ~bs : bs;
-
-				sucset.Insert(bs, add);
-			}
-
-			successors = sucset.ToArray();
-
-			// Running totals
-			int total_weight = 0;
-			runningTotal = new int[prototype_successors.Count];
-			for (int ind = 0; ind < runningTotal.Length; ++ind) {
-				total_weight += successors[ind].weight;
-				runningTotal[ind] = total_weight;
-			}
+			_Setup(sucset.ToArray());
 		}
 
-		// Precondition: successors are sorted highest weight to lowest,
-		// Running totals array is also correct
+		// For constructing from combine function
+		internal MarkovSegment(IEnumerable<NGramSuccessor> sucs) {
+			_Setup(sucs);
+		}
+
+		// For constructing from reading from file
+		// Prerequesites: successors are sorted from highest weight to lowest weight, running total accurately reflect weight
 		internal MarkovSegment(NGramSuccessor[] sucs, int[] runtot) {
 			successors = sucs;
 			runningTotal = runtot;
@@ -415,49 +422,34 @@ namespace MarkovChain.Structs {
 				// TODO: i dont think it should happen but each entry in here should be unique, maybe some sort of testing whether sucmap already has the index
 				sucmap[suc.successor_index] = ind++;
 			}
-
-			void sortAdd(NGramSuccessor add, List<NGramSuccessor> list, IComparer<NGramSuccessor> comp) {
-				int bs = list.BinarySearch(add, comp);
-				bs = (bs == -1) ? 0 : (bs < 0) ? ~bs : bs;
-
-				list.Insert(bs, add);
-			}
+			
 			NGramSuccessor.ReverseComparer rev = new NGramSuccessor.ReverseComparer();
 
 			// Combine with other
-			foreach (NGramSuccessor suc in other.successors) {
-				int remap = ngram_remap[suc.successor_index];
+			foreach (NGramSuccessor other_suc in other.successors) {
+				int remap = ngram_remap[other_suc.successor_index];
 
-				// TODO: remap is wrong or something, investigate
+				if (remap < own_ngram_length && sucmap.TryGetValue(remap, out int index)) {
+					// Given succeeding gram is not unique to other, and within the own, succeeded the current ngram
+					// Combine the weights basically
 
-				if (remap >= own_ngram_length) {
-					// Successor associated with unique ngram from other
-					// Can avoid a dictionary lookup
-					sortAdd(new NGramSuccessor(remap, suc.weight), combined_successors, rev);
+					// TODO: really wanna not have O(n) but idk
+					// First, grab the relevant successor and remove
+					NGramSuccessor own_suc = combined_successors[index];
+					combined_successors.RemoveAt(index);
+
+					// Combine weights
+					own_suc.weight += other_suc.weight;
+
+					// And add back (in sorted position)
+					combined_successors.SortAdd(own_suc, rev);
 				} else {
-					// Associated with ngram from original
-					if (sucmap.TryGetValue(remap, out int index)) {
-						// NGram from original is a successor of this particular NGram in original
-						NGramSuccessor comb = combined_successors[index];
-						comb.weight += suc.weight;
-						combined_successors[index] = comb;
-						// TODO: adding weight could put it out of order!
-					} else {
-						// NGram from original is NOT a successor of this NGram in original
-						sortAdd(new NGramSuccessor(remap, suc.weight), combined_successors, rev);
-					}
+					// Either NGram is straight up unique to other, or the ngram is simply not a successor in this particular link
+					combined_successors.SortAdd(new NGramSuccessor(remap, other_suc.weight), rev);
 				}
 			}
 
-			// Rebuild running totals
-			int total_weight = 0;
-			int[] runningTotal = new int[combined_successors.Count];
-			for (ind = 0; ind < runningTotal.Length; ++ind) {
-				total_weight += combined_successors[ind].weight;
-				runningTotal[ind] = total_weight;
-			}
-
-			return new MarkovSegment(combined_successors.ToArray(), runningTotal);
+			return new MarkovSegment(combined_successors);
 		}
 	}
 
@@ -487,8 +479,8 @@ namespace MarkovChain.Structs {
 
 		internal class ReverseComparer : IComparer<NGramSuccessor> {
 			public int Compare(NGramSuccessor x, NGramSuccessor y) {
-				// return y.weight.CompareTo(x.weight);
-				return (x.weight > y.weight) ? -1 : 1;
+				return y.weight.CompareTo(x.weight);
+				// return (x.weight > y.weight) ? -1 : 1;
 			}
 		}
 	}

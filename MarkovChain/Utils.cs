@@ -136,5 +136,27 @@ namespace MarkovChain {
 
 			return sorted_items[current];
 		}
+
+		// https://stackoverflow.com/a/3635650/4535218
+		public static int GCD(IEnumerable<int> numbers) {
+			return numbers.Aggregate(GCD);
+		}
+
+		public static int GCD(int a, int b) {
+			return b == 0 ? a : (a == 0 ? b : GCD(Math.Min(a, b), Math.Max(a, b) % Math.Min(a, b)));
+		}
+
+		// Add in sorted manner to list
+		public static void SortAdd<T>(this List<T> list, T add, IComparer<T> comp) {
+			int bs = list.BinarySearch(add, comp);
+			bs = (bs == -1) ? 0 : (bs < 0) ? ~bs : bs;
+
+			list.Insert(bs, add);
+		}
+
+		// TODO: add resort single element list helper function
+		public static void ResortSingle<T>(this List<T> list, int src, int dest, IComparer<T> comp) {
+			return;
+		}
 	}
 }
