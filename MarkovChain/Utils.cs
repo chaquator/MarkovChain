@@ -48,7 +48,7 @@ namespace MarkovChain {
 				}
 			}
 
-			// QUESTION: is right always the correct answer??
+			// TODO: is right always the correct answer??
 			// Move pivot
 			arr[l] = arr[right];
 			arr[right] = pivot;
@@ -58,10 +58,10 @@ namespace MarkovChain {
 
 		// https://web.archive.org/web/20120201062954/http://www.darkside.co.za/archive/2008/03/14/microsoft-parallel-extensions-.net-framework.aspx
 		public static void QuicksortParallelOptimised<T>(T[] arr, int left, int right) where T : IComparable<T> {
-			const int SEQUENTIAL_THRESHOLD = 2048;
+			const int sequentialThreshold = 2048;
 
 			if (right > left) {
-				if (right - left < SEQUENTIAL_THRESHOLD) {
+				if (right - left < sequentialThreshold) {
 					Array.Sort(arr, left, right - left);
 				} else {
 					int pivot = Partition(arr, left, right);
@@ -77,12 +77,12 @@ namespace MarkovChain {
 		/// Returns random choice from a list with consideration for the weight
 		/// </summary>
 		/// <typeparam name="T"></typeparam>
-		/// <param name="sorted_items">List of items, sorted in order from highest
+		/// <param name="sortedItems">List of items, sorted in order from highest
 		/// to lowest weight</param>
-		/// <param name="running_totals">List which corresponds with running
+		/// <param name="runningTotals">List which corresponds with running
 		/// total of the items weight so far. The final element of this list
 		/// will be the total weight of the construct</param>
-		/// <param name="weight_selector">Function which returns the weight
+		/// <param name="weightSelector">Function which returns the weight
 		/// associated with the item</param>
 		/// <param name="random">Random number generator class instance to make use of</param>
 		/// <remarks>Hopscotch selection retrieved from
@@ -114,30 +114,30 @@ namespace MarkovChain {
 		/// // Weight selector function, uses map
 		/// Func&lt;char, int&gt; selector = c =&gt; m[c];
 		/// 
-		/// Random r = new Random();
+		/// Random rand = new Random();
 		/// 
-		/// char result = RandomWeightedChoice(k, r, selector, r);
+		/// char result = RandomWeightedChoice(k, r, selector, rand);
 		/// 
 		/// Console.Write(result);
 		/// </code>
 		/// </example>
-		public static T RandomWeightedChoice<T>(T[] sorted_items,
-			int[] running_totals,
-			Func<T, int> weight_selector,
+		public static T RandomWeightedChoice<T>(T[] sortedItems,
+			int[] runningTotals,
+			Func<T, int> weightSelector,
 			Random random) {
-			if (sorted_items.Length == 1) return sorted_items[0];
+			if (sortedItems.Length == 1) return sortedItems[0];
 
-			int target = random.Next(running_totals[running_totals.Length - 1]);
+			int target = random.Next(runningTotals[runningTotals.Length - 1]);
 			int current = 0;
 
-			while(running_totals[current] < target) {
+			while(runningTotals[current] < target) {
 				// Hop is based on remaining distance divided by the weight
 				// of the current
-				current += 1 + ((target - running_totals[current] - 1) /
-							weight_selector(sorted_items[current]));
+				current += 1 + ((target - runningTotals[current] - 1) /
+							weightSelector(sortedItems[current]));
 			}
 
-			return sorted_items[current];
+			return sortedItems[current];
 		}
 
 		// https://stackoverflow.com/a/3635650/4535218

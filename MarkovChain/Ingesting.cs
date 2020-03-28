@@ -21,29 +21,29 @@ namespace MarkovChain.Ingesting {
 		/// <summary>
 		/// Filename for input CSV file
 		/// </summary>
-		public string infile_csv;
+		public string infileCSV;
 
 		/// <summary>
 		/// Name of column to match and pull comments from (default "Content")
 		/// </summary>
-		public string csv_column;
+		public string csvColumn;
 
 		/// <summary>
 		/// Array of string pairs in the form of (reg, rep) where
 		/// for each line ingested, the regex is matched by reg and
 		/// replaced with rep in the order listed by the array.
 		/// </summary>
-		public Tuple<string, string>[] regex_filters;
+		public Tuple<string, string>[] regexFilters;
 
 		/// <summary>
 		/// Unsigned long representing size of n-gram for a markov chain segment
 		/// </summary>
-		public int gram_size;
+		public int gramSize;
 
 		/// <summary>
 		/// Filename for output markov file
 		/// </summary>
-		public string outfile_markov;
+		public string outfileMarkov;
 	}
 
 	/// <summary>
@@ -59,44 +59,45 @@ namespace MarkovChain.Ingesting {
 		public Status status;
 
 		// Resultant values to grab
-		public string[] master_dictionary;
-		public MarkovStructure finished_markovstruct;
+		public string[] masterDictionary;
+		public MarkovStructure finishedMarkovStructure;
 
 		// Concurrent queues for pipeline
 		// set to private later
-		public readonly ConcurrentQueue<string> conqueue_csv,
-												conqueue_filtered;
-		public readonly ConcurrentQueue<int[]> conqueue_dictionarized;
+		public readonly ConcurrentQueue<string> conqueCSV,
+												conqueFilter;
+		public readonly ConcurrentQueue<int[]> conqueDictionarized;
 
 		// Flags
-		private bool flag_csv,
-						flag_filtered,
-						flag_dictionarized;
+		private bool flagCSV,
+						flagFiltered,
+						flagDictionarized;
 
 
 		// Dictionarizing thread related constructs
-		private readonly ConcurrentQueue<string> working_master_dictionary;
-		private readonly ConcurrentDictionary<string, int> working_master_word_cloud;
+		private readonly ConcurrentQueue<string> workingMasterDictionary;
+		private readonly ConcurrentDictionary<string, int> workingMasterWordCloud;
 
 		// Markovizing thread related constructs
-		private readonly ConcurrentDictionary<NGram, int> working_master_ngram_cloud;
+		private readonly ConcurrentDictionary<NGram, int> workingMasterNGramCloud;
 
-		private readonly ConcurrentQueue<NGram> working_master_ngrams;
-		private readonly ConcurrentDictionary<int, bool> working_master_seeds;
+		private readonly ConcurrentQueue<NGram> workingMasterNGrams;
+		private readonly ConcurrentDictionary<int, bool> workingMasterSeeds;
 		private readonly ConcurrentDictionary<int,
-						ConcurrentDictionary<int, int>> working_master_successors;
+						ConcurrentDictionary<int, int>> workingMasterSuccessors;
 
 
 		// Enums
 
+		// TODO: change to exceptions or something
 		/// <summary>
 		/// Various states for ingesting, which 
 		/// will sift up by end of the function
 		/// </summary>
 		public enum Status {
-			ALL_GOOD,
-			ERROR_COLUMN_NOT_FOUND,
-			INVALID_GRAM_SIZE
+			AllGood,
+			ErrorColumnNotFound,
+			InvalidGramSize
 		}
 
 		/// <summary>
@@ -106,27 +107,27 @@ namespace MarkovChain.Ingesting {
 		public Pipeline(IngestOptions opt) {
 			options = opt;
 
-			status = Status.ALL_GOOD;
+			status = Status.AllGood;
 
 			// Threads
-			conqueue_csv = new ConcurrentQueue<string>();
-			flag_csv = false;
+			conqueCSV = new ConcurrentQueue<string>();
+			flagCSV = false;
 
-			conqueue_filtered = new ConcurrentQueue<string>();
-			flag_filtered = false;
+			conqueFilter = new ConcurrentQueue<string>();
+			flagFiltered = false;
 
-			conqueue_dictionarized = new ConcurrentQueue<int[]>();
-			flag_dictionarized = false;
+			conqueDictionarized = new ConcurrentQueue<int[]>();
+			flagDictionarized = false;
 
 			// Dictionarizing
-			working_master_dictionary = new ConcurrentQueue<string>();
-			working_master_word_cloud = new ConcurrentDictionary<string, int>();
+			workingMasterDictionary = new ConcurrentQueue<string>();
+			workingMasterWordCloud = new ConcurrentDictionary<string, int>();
 
 			// Markovization
-			working_master_ngram_cloud = new ConcurrentDictionary<NGram, int>();
-			working_master_ngrams = new ConcurrentQueue<NGram>();
-			working_master_seeds = new ConcurrentDictionary<int, bool>();
-			working_master_successors = new ConcurrentDictionary<int, ConcurrentDictionary<int, int>>();
+			workingMasterNGramCloud = new ConcurrentDictionary<NGram, int>();
+			workingMasterNGrams = new ConcurrentQueue<NGram>();
+			workingMasterSeeds = new ConcurrentDictionary<int, bool>();
+			workingMasterSuccessors = new ConcurrentDictionary<int, ConcurrentDictionary<int, int>>();
 		}
 
 		/// <summary>
@@ -148,27 +149,27 @@ namespace MarkovChain.Ingesting {
 			// TODO: consider lofting out each stage (and threads) into its own class for variable seperation
 
 			// Gram size precondition
-			if (options.gram_size < 1) {
-				status = Status.INVALID_GRAM_SIZE;
+			if (options.gramSize < 1) {
+				status = Status.InvalidGramSize;
 				return false;
 			}
 
-			Thread thread_csv = new Thread(Thread_CSV_Ingest);
-			Thread thread_filter = new Thread(Thread_Filter_Lead);
-			Thread thread_dictionarize = new Thread(Thread_Dictionarize_Lead);
-			Thread thread_markovize = new Thread(Thread_Markovize_Lead);
+			Thread threadCSV = new Thread(ThreadCSVIngest);
+			Thread threadFilter = new Thread(ThreadFilterLead);
+			Thread threadDictionarize = new Thread(ThreadDictionarizeLead);
+			Thread threadMarkovize = new Thread(ThreadMarkovizeLead);
 
-			thread_csv.Start();
-			thread_filter.Start();
-			thread_dictionarize.Start();
-			thread_markovize.Start();
+			threadCSV.Start();
+			threadFilter.Start();
+			threadDictionarize.Start();
+			threadMarkovize.Start();
 
-			thread_csv.Join();
-			thread_filter.Join();
-			thread_dictionarize.Join();
-			thread_markovize.Join();
+			threadCSV.Join();
+			threadFilter.Join();
+			threadDictionarize.Join();
+			threadMarkovize.Join();
 
-			return status == Status.ALL_GOOD;
+			return status == Status.AllGood;
 		}
 
 		// Threads
@@ -176,9 +177,9 @@ namespace MarkovChain.Ingesting {
 		/// <summary>
 		/// CSV Ingesting stage master thread
 		/// </summary>
-		private void Thread_CSV_Ingest() {
+		private void ThreadCSVIngest() {
 			Console.WriteLine("[CSV]: Starting...");
-			using (TextFieldParser parser = new TextFieldParser(options.infile_csv)) {
+			using (TextFieldParser parser = new TextFieldParser(options.infileCSV)) {
 				parser.TextFieldType = FieldType.Delimited;
 				parser.SetDelimiters(";");
 
@@ -187,31 +188,30 @@ namespace MarkovChain.Ingesting {
 				fields = parser.ReadFields();
 
 				// Discover index for relevant column (options.csv_column)
-				uint column_ind = 0;
+				uint columnIndex = 0;
 				foreach (string f in fields) {
-					if (f == options.csv_column) break;
-					++column_ind;
+					if (f == options.csvColumn) break;
+					++columnIndex;
 				}
 
 				// If no index discovered, failure
-				if (column_ind == fields.Length) {
-					status = Status.ERROR_COLUMN_NOT_FOUND;
-					Failure_Callback();
+				if (columnIndex == fields.Length) {
+					status = Status.ErrorColumnNotFound;
+					FailureCallback();
 					return;
 				}
 
 				// While not end of stream, read off specific column, push onto filter queue
 				while (!parser.EndOfData) {
-
 					fields = parser.ReadFields();
-					string msg = fields[column_ind];
+					string msg = fields[columnIndex];
 
-					if (msg != "") conqueue_csv.Enqueue(msg);
+					if (msg != "") conqueCSV.Enqueue(msg);
 				}
 			}
 
 			Console.WriteLine("[CSV]: Finished!");
-			flag_csv = true;
+			flagCSV = true;
 		}
 
 		/// <summary>
@@ -219,7 +219,7 @@ namespace MarkovChain.Ingesting {
 		/// thread(s), manages finished flag for filtering
 		/// </summary>
 		/// <remarks>Finished flag :- all filtering thread(s) are finished</remarks>
-		private void Thread_Filter_Lead() {
+		private void ThreadFilterLead() {
 			//	Filtering master thread --
 			//		Launches all filtering threads
 			//		Manages finished flag for filtering
@@ -232,20 +232,20 @@ namespace MarkovChain.Ingesting {
 			Console.WriteLine("[Filter Lead]: Dispatching {0} workers...", concur);
 
 			for (int i = 0; i < concur; ++i) {
-				workers[i] = Task.Run(() => Thread_Filter_Work(i));
+				workers[i] = Task.Run(() => ThreadFilterWork(i));
 			}
 
 			Task.WaitAll(workers);
 
 			Console.WriteLine("[Filter Lead]: Workers finished!");
 
-			flag_filtered = true;
+			flagFiltered = true;
 		}
 
 		/// <summary>
 		/// Filtering work thread(s).
 		/// </summary>
-		private void Thread_Filter_Work(int id) {
+		private void ThreadFilterWork(int id) {
 			//	Filtering thread(s) --
 			//		until CSV Ingest is finished (known by flag),
 			//		take one line and run through filters, then queue onto sentence string queue for dictionarizing
@@ -256,10 +256,10 @@ namespace MarkovChain.Ingesting {
 			Console.WriteLine("[Filter #{0}]: Starting...", id);
 
 			// Stop :- csv_ingest_finihed, conqueue_csv.IsEmpty
-			while (!(flag_csv && conqueue_csv.IsEmpty)) {
-				if (conqueue_csv.TryDequeue(out string piece)) {
+			while (!(flagCSV && conqueCSV.IsEmpty)) {
+				if (conqueCSV.TryDequeue(out string piece)) {
 					// Take piece out, run through filters, enqueue if applicable
-					foreach (var filter in options.regex_filters) {
+					foreach (var filter in options.regexFilters) {
 						piece = Regex.Replace(piece, filter.Item1, filter.Item2);
 
 						// No bother filtering if string is already empty
@@ -269,7 +269,7 @@ namespace MarkovChain.Ingesting {
 					// Skip enqueuing string is empty
 					if (piece == "") continue;
 
-					conqueue_filtered.Enqueue(piece);
+					conqueFilter.Enqueue(piece);
 				} else {
 					// me guess is csv finished flag is still false, queue is empty waiting to be filled
 					// very slim chance flag is true, and there was a small race condition between
@@ -281,7 +281,7 @@ namespace MarkovChain.Ingesting {
 			Console.WriteLine("[Filter #{0}]: Finished!", id);
 		}
 
-		private void Thread_Dictionarize_Lead() {
+		private void ThreadDictionarizeLead() {
 			//	Dictionarization master thread --
 			//		Has master word-cloud, word-list, sentence queue for markovization
 			//		Finished flag :-	all dictionarization threads are themselves finished,
@@ -300,7 +300,7 @@ namespace MarkovChain.Ingesting {
 			Console.WriteLine("[Dictionarize Lead]: Dispatching {0} workers...", concur);
 
 			for (int i = 0; i < concur; ++i) {
-				workers[i] = Task.Run(() => Thread_Dictionarize_Work(i));
+				workers[i] = Task.Run(() => ThreadDictionarizeWork(i));
 			}
 
 			Task.WaitAll(workers);
@@ -308,12 +308,12 @@ namespace MarkovChain.Ingesting {
 			Console.WriteLine("[Dictionarize Lead]: Workers finished!");
 
 			// Transform working master dictionary to final master dictionary
-			master_dictionary = working_master_dictionary.ToArray();
+			masterDictionary = workingMasterDictionary.ToArray();
 
-			flag_dictionarized = true;
+			flagDictionarized = true;
 		}
 
-		private void Thread_Dictionarize_Work(int id) {
+		private void ThreadDictionarizeWork(int id) {
 			//	Dictionarizing thread(s) --
 			//		Dequeue a sentence string from preceeding filtered queue
 			//		construct dictionarize w/ master cloud and master list
@@ -322,21 +322,21 @@ namespace MarkovChain.Ingesting {
 
 			Console.WriteLine("[Dictionarize #{0}]: Starting...", id);
 
-			while (!flag_filtered || !conqueue_filtered.IsEmpty) {
+			while (!flagFiltered || !conqueFilter.IsEmpty) {
 				List<int> cursent; // current dictionarized sentence
 
-				if (conqueue_filtered.TryDequeue(out string sentence)) {
+				if (conqueFilter.TryDequeue(out string sentence)) {
 					// We have a sentence, dictionarize each word
 					cursent = new List<int>();
 
 					// Dictionarize
 					foreach (string word in sentence.WordList()) {
-						if (!working_master_word_cloud.TryGetValue(word, out int index)) {
+						if (!workingMasterWordCloud.TryGetValue(word, out int index)) {
 							// There is no index for the current word, we must add one
-							index = working_master_dictionary.Count();
+							index = workingMasterDictionary.Count();
 
-							working_master_dictionary.Enqueue(word);
-							working_master_word_cloud[word] = index;
+							workingMasterDictionary.Enqueue(word);
+							workingMasterWordCloud[word] = index;
 						} // else, the trygetvalue succeeded, we have an index (no further action necessary)
 
 						cursent.Add(index);
@@ -346,7 +346,7 @@ namespace MarkovChain.Ingesting {
 					cursent.Add(-1);
 
 					// Enqueue array onto conqueue
-					conqueue_dictionarized.Enqueue(cursent.ToArray());
+					conqueDictionarized.Enqueue(cursent.ToArray());
 				} else {
 					// waiting on queue to be filled
 					Thread.Yield();
@@ -356,7 +356,7 @@ namespace MarkovChain.Ingesting {
 			Console.WriteLine("[Dictionarize #{0}]: Finished!", id);
 		}
 
-		private void Thread_Markovize_Lead() {
+		private void ThreadMarkovizeLead() {
 			//	Markovizing master thread -- 
 			//		Has master ngrams collection, concurrentqueue of ngrams which will be referred by indeces in other vars
 			//		Has master ngram seed collection, concurrent bag of integers which point to indeces
@@ -373,7 +373,7 @@ namespace MarkovChain.Ingesting {
 			Console.WriteLine("[Markovization Lead]: Dispatching {0} workers...", concur);
 
 			for (int i = 0; i < concur; ++i) {
-				workers[i] = Task.Run(() => Thread_Markovize_Work(i));
+				workers[i] = Task.Run(() => ThreadMarkovizeWork(i));
 			}
 
 			Task.WaitAll(workers);
@@ -381,11 +381,11 @@ namespace MarkovChain.Ingesting {
 			Console.WriteLine("[Markovization Lead]: Workers finished!");
 
 			// Create finished markovization product
-			finished_markovstruct = new MarkovStructure(master_dictionary, working_master_ngrams,
-										working_master_successors, working_master_seeds);
+			finishedMarkovStructure = new MarkovStructure(masterDictionary, workingMasterNGrams,
+										workingMasterSuccessors, workingMasterSeeds);
 		}
 
-		private void Thread_Markovize_Work(int id) {
+		private void ThreadMarkovizeWork(int id) {
 			//	Markovizing thread(s) --
 			//		Takes a dictionarized sentence off queue if available
 			//		Markovizing sentence --
@@ -404,55 +404,55 @@ namespace MarkovChain.Ingesting {
 			//				Increment index
 			//		Finished flag :- dictionarized conqueue is empty, dictionarization flag is true
 
-			while (!conqueue_dictionarized.IsEmpty || !flag_dictionarized) {
+			while (!conqueDictionarized.IsEmpty || !flagDictionarized) {
 				int pos, // position along sentence
 					index, // index of current ngram
-					index_suc; // index of succeeding ngram
+					indexOfSuccessor; // index of succeeding ngram
 
 				NGram curgram;
 
-				if (conqueue_dictionarized.TryDequeue(out int[] cursent)) {
+				if (conqueDictionarized.TryDequeue(out int[] cursent)) {
 					pos = 0;
 
 					// Grab firs gram
 
 					// Short-circuit procedure for when sentence is to be made up of one gram
-					if (cursent.Length <= options.gram_size) {
+					if (cursent.Length <= options.gramSize) {
 						// Sentence is one gram which may or may not be short
 						curgram = new NGram(cursent);
 
 						// Register, set as seed
-						working_master_seeds[Markovization_Register_Gram(ref curgram)] = true;
+						workingMasterSeeds[MarkovizationRegisterNGram(ref curgram)] = true;
 
 						// Move on with next sentence
 						continue;
 					}
 
 					//Regular procedure, grabs first gram, regisers, and loops to the end grabbing grams
-					curgram = Markovization_Ingest_Gram(cursent, pos++);
-					index = Markovization_Register_Gram(ref curgram);
+					curgram = MarkovizationIngestNGram(cursent, pos++);
+					index = MarkovizationRegisterNGram(ref curgram);
 
 					// Register as seed
-					working_master_seeds[index] = true;
+					workingMasterSeeds[index] = true;
 
 					//	In cases where sentence is made of more than 1 gram
 					//		visualization, length is 6, gram-size is 3:
 					//			0 1 2 3 4 -1
 					//			      ^stop
 					//		pos <= 6[length] - 3[size]
-					while (pos <= cursent.Length - options.gram_size) {
-						curgram = Markovization_Ingest_Gram(cursent, pos++);
-						index_suc = Markovization_Register_Gram(ref curgram);
+					while (pos <= cursent.Length - options.gramSize) {
+						curgram = MarkovizationIngestNGram(cursent, pos++);
+						indexOfSuccessor = MarkovizationRegisterNGram(ref curgram);
 
 						// Update (or establish) successor counter
-						if (working_master_successors[index].ContainsKey(index_suc)) {
-							working_master_successors[index][index_suc] = working_master_successors[index][index_suc] + 1;
+						if (workingMasterSuccessors[index].ContainsKey(indexOfSuccessor)) {
+							workingMasterSuccessors[index][indexOfSuccessor] = workingMasterSuccessors[index][indexOfSuccessor] + 1;
 						} else {
-							working_master_successors[index][index_suc] = 1;
+							workingMasterSuccessors[index][indexOfSuccessor] = 1;
 						}
 
 						// Shift out the old
-						index = index_suc;
+						index = indexOfSuccessor;
 					}
 				} else {
 					Thread.Yield();
@@ -463,11 +463,11 @@ namespace MarkovChain.Ingesting {
 		/// <summary>
 		/// Failure callback function, executes whenver there is some sort of failure.
 		/// </summary>
-		private void Failure_Callback() {
+		private void FailureCallback() {
 			Console.WriteLine("Failure has occured!");
 			switch (status) {
-				case Status.ERROR_COLUMN_NOT_FOUND:
-					Console.WriteLine("Column {0} not found in {1}!", options.csv_column, options.infile_csv);
+				case Status.ErrorColumnNotFound:
+					Console.WriteLine("Column {0} not found in {1}!", options.csvColumn, options.infileCSV);
 					break;
 			}
 		}
@@ -478,10 +478,10 @@ namespace MarkovChain.Ingesting {
 		/// <param name="cursent"></param>
 		/// <param name="position"></param>
 		/// <returns></returns>
-		private NGram Markovization_Ingest_Gram(int[] cursent, int position) {
-			int[] proto_gram = new int[options.gram_size];
-			Array.Copy(cursent, position, proto_gram, 0, options.gram_size);
-			return new NGram(proto_gram);
+		private NGram MarkovizationIngestNGram(int[] cursent, int position) {
+			int[] protoGram = new int[options.gramSize];
+			Array.Copy(cursent, position, protoGram, 0, options.gramSize);
+			return new NGram(protoGram);
 		}
 
 		/// <summary>
@@ -489,19 +489,18 @@ namespace MarkovChain.Ingesting {
 		/// </summary>
 		/// <param name="gram"></param>
 		/// <returns></returns>
-		private int Markovization_Register_Gram(ref NGram gram) {
-			int index;
+		private int MarkovizationRegisterNGram(ref NGram gram) {
 			// Get corresponding index of first
-			if (!working_master_ngram_cloud.TryGetValue(gram, out index)) {
+			if (!workingMasterNGramCloud.TryGetValue(gram, out int index)) {
 				// Gram is unique as of yet
-				index = working_master_ngrams.Count();
+				index = workingMasterNGrams.Count();
 
 				// Put in list, get index
-				working_master_ngrams.Enqueue(gram);
-				working_master_ngram_cloud[gram] = index;
+				workingMasterNGrams.Enqueue(gram);
+				workingMasterNGramCloud[gram] = index;
 
 				// Create new successors dictioanry
-				working_master_successors[index] = new ConcurrentDictionary<int, int>();
+				workingMasterSuccessors[index] = new ConcurrentDictionary<int, int>();
 			}
 
 			return index;

@@ -6,9 +6,9 @@ namespace MarkovChain {
 	class Program {
 		static void Main() {
 			Ingesting.IngestOptions opts = new Ingesting.IngestOptions {
-				infile_csv = "m.csv",
-				csv_column = "Content",
-				regex_filters = new Tuple<string, string>[]{
+				infileCSV = "m.csv",
+				csvColumn = "Content",
+				regexFilters = new Tuple<string, string>[]{
 					Tuple.Create(@"\b?@\S+\s*", " "), // filter @person's
 					Tuple.Create(@"\b?https?.*\s*", " "), // filter URLs
 					Tuple.Create(@"`+[^`]*`+", " "), // Filter code blocks
@@ -20,8 +20,8 @@ namespace MarkovChain {
 					Tuple.Create(@"\s+$", ""), // closing spaces
 					Tuple.Create(@"\s{2,}", " ") // excess space (also handles newlines)
 				},
-				gram_size = 2,
-				outfile_markov = "test.markov"
+				gramSize = 2,
+				outfileMarkov = "test.markov"
 			};
 #if true
 			int[] a = { 1, 2, 3, 4, 5 };

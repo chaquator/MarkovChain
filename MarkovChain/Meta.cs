@@ -216,7 +216,7 @@ namespace MarkovChain.Structs.Meta {
 
 			// Chain links
 			writer.WriteStartArray("links");
-			foreach (MarkovSegment link in value.chain_links) {
+			foreach (MarkovSegment link in value.chainLinks) {
 				writer.WriteStartObject();
 
 				// Successors
@@ -225,7 +225,7 @@ namespace MarkovChain.Structs.Meta {
 					writer.WriteStartObject();
 
 					// Index
-					writer.WriteNumber("index", suc.successor_index);
+					writer.WriteNumber("index", suc.successorIndex);
 
 					// Weight
 					writer.WriteNumber("weight", suc.weight);
