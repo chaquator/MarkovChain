@@ -335,6 +335,9 @@ namespace MarkovChain.Structs {
 	/// array to assemble sentence
 	/// </summary>
 	internal class MarkovSegment {
+		private static object _randLock = new object();
+		private static Random _segment_random = new Random();
+
 		/// <summary>
 		/// Sorted array of ngrams which succeed given ngram, along with their relatively frequency
 		/// </summary>
@@ -352,7 +355,9 @@ namespace MarkovChain.Structs {
 		/// <remarks>Hopscotch selection from https://blog.bruce-hill.com/a-faster-weighted-random-choice </remarks>
 		/// <returns>Returns a chain link representing the successor</returns>
 		internal NGramSuccessor randomSuccessor() {
-			return Utils.RandomWeightedChoice(successors, runningTotal, (x) => x.weight);
+			lock (_randLock) {
+				return Utils.RandomWeightedChoice(successors, runningTotal, x => x.weight, _segment_random);
+			}
 		}
 
 		// Setup function which will normalize successors and compute running totals
@@ -363,7 +368,7 @@ namespace MarkovChain.Structs {
 			int GDC = Utils.GCD(sucs.Select<NGramSuccessor, int>(e => e.weight));
 
 			// Successors are divided by GDC
-			successors = sucs.Select(e => new NGramSuccessor(e.successor_index, e.weight/GDC)).ToArray();
+			successors = sucs.Select(e => new NGramSuccessor(e.successor_index, e.weight / GDC)).ToArray();
 
 			// Compute running total
 			int total_weight = 0;
@@ -422,7 +427,7 @@ namespace MarkovChain.Structs {
 				// TODO: i dont think it should happen but each entry in here should be unique, maybe some sort of testing whether sucmap already has the index
 				sucmap[suc.successor_index] = ind++;
 			}
-			
+
 			NGramSuccessor.ReverseComparer rev = new NGramSuccessor.ReverseComparer();
 
 			// Combine with other

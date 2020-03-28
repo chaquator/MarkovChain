@@ -84,6 +84,7 @@ namespace MarkovChain {
 		/// will be the total weight of the construct</param>
 		/// <param name="weight_selector">Function which returns the weight
 		/// associated with the item</param>
+		/// <param name="random">Random number generator class instance to make use of</param>
 		/// <remarks>Hopscotch selection retrieved from
 		/// https://blog.bruce-hill.com/a-faster-weighted-random-choice </remarks>
 		/// <returns>Choice which has been selected</returns>
@@ -111,20 +112,22 @@ namespace MarkovChain {
 		/// m.Keys.CopyTo(k, 0);
 		/// 
 		/// // Weight selector function, uses map
-		/// Func&lt;char, int&gt; selector = (c) =&gt; m[c];
+		/// Func&lt;char, int&gt; selector = c =&gt; m[c];
 		/// 
-		/// char result = Utils.RandomWeightedChoice(k, r, selector)
+		/// Random r = new Random();
+		/// 
+		/// char result = RandomWeightedChoice(k, r, selector, r);
 		/// 
 		/// Console.Write(result);
 		/// </code>
 		/// </example>
 		public static T RandomWeightedChoice<T>(T[] sorted_items,
 			int[] running_totals,
-			Func<T, int> weight_selector) {
+			Func<T, int> weight_selector,
+			Random random) {
 			if (sorted_items.Length == 1) return sorted_items[0];
 
-			Random r = new Random();
-			int target = r.Next(running_totals[running_totals.Length - 1]);
+			int target = random.Next(running_totals[running_totals.Length - 1]);
 			int current = 0;
 
 			while(running_totals[current] < target) {
@@ -156,6 +159,7 @@ namespace MarkovChain {
 
 		// TODO: add resort single element list helper function
 		public static void ResortSingle<T>(this List<T> list, int src, int dest, IComparer<T> comp) {
+			// Will find new position of element at src in list and move it by shifting other elements around
 			return;
 		}
 	}
