@@ -5,6 +5,7 @@ using System.Linq;
 namespace MarkovChain {
 	class Program {
 		static void Main() {
+			// TODO: seperate between ingesting and input/output options
 			Ingesting.IngestOptions opts = new Ingesting.IngestOptions {
 				infileCSV = "m.csv",
 				csvColumn = "Content",

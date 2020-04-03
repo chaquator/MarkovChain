@@ -5,11 +5,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace MarkovChain.Structs.Meta {
-	
-
 	public class MarkovStructureJsonConverter : JsonConverter<MarkovStructure> {
 		public override bool CanConvert(Type typeToConvert) {
-			return true;
+			return typeToConvert == typeof(MarkovStructure);
 		}
 
 		public override MarkovStructure Read(ref Utf8JsonReader reader,
