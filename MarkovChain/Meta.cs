@@ -22,10 +22,10 @@ namespace MarkovChain.Structs.Meta {
 			List<int> curgram;
 
 			List<MarkovSegment> links = new List<MarkovSegment>();
-			List<NGramSuccessor> current_succesors;
-			List<int> current_running;
-			int current_sucind;
-			int current_weight;
+			List<NGramSuccessor> currentSuccessors;
+			List<int> currentRunningTotals;
+			int currentSuccessorIndex;
+			int currentWeight;
 
 			List<int> seeds = new List<int>();
 
@@ -88,7 +88,7 @@ namespace MarkovChain.Structs.Meta {
 					// Start of successors array
 					r.Read();
 
-					current_succesors = new List<NGramSuccessor>();
+					currentSuccessors = new List<NGramSuccessor>();
 
 					// Loop must begin where token to be is start of object
 					while (true) {
@@ -102,19 +102,19 @@ namespace MarkovChain.Structs.Meta {
 
 						// Index value
 						r.Read();
-						current_sucind = r.GetInt32();
+						currentSuccessorIndex = r.GetInt32();
 
 						// Weight property name
 						r.Read();
 
 						// Weight value
 						r.Read();
-						current_weight = r.GetInt32();
+						currentWeight = r.GetInt32();
 
 						// End of NGramSuccessor object
 						r.Read();
 
-						current_succesors.Add(new NGramSuccessor(current_sucind, current_weight));
+						currentSuccessors.Add(new NGramSuccessor(currentSuccessorIndex, currentWeight));
 					}
 
 					// Parse running totals
@@ -125,7 +125,7 @@ namespace MarkovChain.Structs.Meta {
 					// Start of running totals array
 					r.Read();
 
-					current_running = new List<int>();
+					currentRunningTotals = new List<int>();
 
 					// Loop must begin where token to be is start of array
 					while (true) {
@@ -134,14 +134,13 @@ namespace MarkovChain.Structs.Meta {
 						if (r.TokenType != JsonTokenType.Number) break;
 
 						// Read integer
-						// r.Read();
-						current_running.Add(r.GetInt32());
+						currentRunningTotals.Add(r.GetInt32());
 					}
 
 					// End of MarkovSegment object
 					r.Read();
 
-					links.Add(new MarkovSegment(current_succesors.ToArray(), current_running.ToArray()));
+					links.Add(new MarkovSegment(currentSuccessors.ToArray(), currentRunningTotals.ToArray()));
 				}
 
 				// Ends ready to parse next property

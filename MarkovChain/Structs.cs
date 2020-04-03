@@ -72,7 +72,7 @@ namespace MarkovChain.Structs {
 			// Short circuit return for seeds which are a single sentence
 			if (currentGram[currentGram.Length - 1] == -1) {
 				protoReturn.RemoveAt(currentGram.Length - 1);
-				return protoReturn.ToArray();
+				return protoReturn;
 			}
 
 			// Set curgram to successor
@@ -211,7 +211,7 @@ namespace MarkovChain.Structs {
 			// TODO: consider parallelizing, would involve an add queue and a lock potentially
 			foreach (NGram gram in other.grams) {
 				// Translate ngram using dictionary remap
-				int[] g = gram.gram.Select((e) => (e == -1) ? -1 : dictionaryOtherRemap[e]).ToArray();
+				var g = gram.gram.Select((e) => (e == -1) ? -1 : dictionaryOtherRemap[e]);
 				NGram remap = new NGram(g);
 
 				if (ngramMap.TryGetValue(remap, out int index)) {
@@ -242,16 +242,16 @@ namespace MarkovChain.Structs {
 			// TODO: make parallel when done testing
 			// Parallel.For(0, other.chain_links.Length, (index) => {
 			for (int index = 0; index < other.chainLinks.Length; ++index) {
-				MarkovSegment otherSegment = other.chainLinks[index];
+				var otherSegment = other.chainLinks[index];
 
 				int remap;
 				if ((remap = ngramOtherRemap[index]) >= chainLinks.Length) {
 					// Unique link needs to be associated with its remap spot
 					combinedLinks[remap] = otherSegment;
 				} else {
-					MarkovSegment ownSegment = chainLinks[remap];
+					var ownSegment = chainLinks[remap];
 					// Otherwise, combine the segments and replace
-					MarkovSegment replace = ownSegment.Combine(otherSegment, ngramOtherRemap, grams.Length);
+					var replace = ownSegment.Combine(otherSegment, ngramOtherRemap, grams.Length);
 
 					// Replace link in relevant structures
 					combinedLinks[remap] = replace;
@@ -304,11 +304,9 @@ namespace MarkovChain.Structs {
 			// Populate chain links
 			// Index of any chain link is associated with the ngram of the same index
 			chainLinks = new MarkovSegment[grams.Length];
-			Parallel.For(0, grams.Length,
-				(ind) => {
-					chainLinks[ind] = new MarkovSegment(prototypeChainlinks[ind]);
-				}
-			);
+			Parallel.For(0, grams.Length, (ind) => {
+				chainLinks[ind] = new MarkovSegment(prototypeChainlinks[ind]);
+			});
 
 			// Populate list of seeds
 			seeds = sds.Keys.ToArray();
@@ -348,21 +346,23 @@ namespace MarkovChain.Structs {
 		}
 
 		// Setup function which will normalize successors and compute running totals
-		private void Setup(IEnumerable<NGramSuccessor> sucs) {
-			// TODO: stop going crazy with linq just do things properly
-
+		// TODO: test
+		private void SetupSuccessorsAndRunningTotals(IEnumerable<NGramSuccessor> sucs) {
 			// Get GDC of weights
 			int GDC = Utils.GCD(sucs.Select(e => e.weight));
 
 			// Successors are divided by GDC
-			successors = sucs.Select(e => new NGramSuccessor(e.successorIndex, e.weight / GDC)).ToArray();
+			Parallel.ForEach(sucs, (successor) => {
+				successor.weight /= GDC;
+			});
+			successors = sucs.ToArray();
 
 			// Compute running total
-			int total_weight = 0;
-			int[] runningTotal = new int[successors.Length];
+			int totalWeight = 0;
+			runningTotal = new int[successors.Length];
 			for (int ind = 0; ind < runningTotal.Length; ++ind) {
-				total_weight += successors[ind].weight;
-				runningTotal[ind] = total_weight;
+				totalWeight += successors[ind].weight;
+				runningTotal[ind] = totalWeight;
 			}
 		}
 
@@ -381,12 +381,12 @@ namespace MarkovChain.Structs {
 			NGramSuccessor.ReverseComparer reverseComparer = new NGramSuccessor.ReverseComparer();
 			foreach (var successor in prototypeSuccessors) successorList.SortAdd(new NGramSuccessor(successor.Key, successor.Value), reverseComparer);
 
-			Setup(successorList.ToArray());
+			SetupSuccessorsAndRunningTotals(successorList.ToArray());
 		}
 
 		// For constructing from combine function
 		internal MarkovSegment(IEnumerable<NGramSuccessor> successors) {
-			Setup(successors);
+			SetupSuccessorsAndRunningTotals(successors);
 		}
 
 		// For constructing from reading from file
@@ -415,7 +415,7 @@ namespace MarkovChain.Structs {
 				successorMap[successor.successorIndex] = ind++;
 			}
 
-			NGramSuccessor.ReverseComparer reverseComparer = new NGramSuccessor.ReverseComparer();
+			var reverseComparer = new NGramSuccessor.ReverseComparer();
 
 			// Combine with other
 			foreach (NGramSuccessor otherSuccessor in other.successors) {
@@ -486,8 +486,8 @@ namespace MarkovChain.Structs {
 		/// </summary>
 		public readonly int[] gram;
 
-		public NGram(int[] g) {
-			gram = g;
+		public NGram(IEnumerable<int> g) {
+			gram = g.ToArray();
 		}
 
 		public override bool Equals(object obj) {
