@@ -117,8 +117,8 @@ namespace MarkovChain.Structs {
 		/// <param name="filename"></param>
 		/// <returns></returns>
 		public static MarkovStructure ReadFile(string filename) {
-			using (FileStream filestream = new FileStream(filename, FileMode.Open)) {
-				JsonSerializerOptions jsonSerializerOptions = new JsonSerializerOptions();
+			using (var filestream = new FileStream(filename, FileMode.Open)) {
+				var jsonSerializerOptions = new JsonSerializerOptions();
 				jsonSerializerOptions.Converters.Add(new Meta.MarkovStructureJsonConverter());
 				return JsonSerializer.DeserializeAsync<MarkovStructure>(filestream, jsonSerializerOptions).Result;
 			}
@@ -129,18 +129,18 @@ namespace MarkovChain.Structs {
 		/// </summary>
 		/// <param name="filename"></param>
 		public void WriteFile(string filename) {
-			const bool writeIndent = true;
-			JsonWriterOptions jsonWriterOptions = new JsonWriterOptions {
+			bool writeIndent = true;
+			var jsonWriterOptions = new JsonWriterOptions {
 				Indented = writeIndent,
 				SkipValidation = true
 			};
-			JsonSerializerOptions jsonSerializerOptions = new JsonSerializerOptions() {
+			var jsonSerializerOptions = new JsonSerializerOptions() {
 				WriteIndented = writeIndent
 			};
 
-			using (FileStream filestream = new FileStream(filename, FileMode.Create))
-			using (Utf8JsonWriter jsonWriter = new Utf8JsonWriter(filestream, jsonWriterOptions)) {
-				Meta.MarkovStructureJsonConverter converter = new Meta.MarkovStructureJsonConverter();
+			using (var filestream = new FileStream(filename, FileMode.Create))
+			using (var jsonWriter = new Utf8JsonWriter(filestream, jsonWriterOptions)) {
+				var converter = new Meta.MarkovStructureJsonConverter();
 				converter.Write(jsonWriter, this, jsonSerializerOptions);
 			}
 		}
@@ -150,7 +150,7 @@ namespace MarkovChain.Structs {
 		/// </summary>
 		/// <returns></returns>
 		public override string ToString() {
-			JsonSerializerOptions jsonSerializerOptions = new JsonSerializerOptions() {
+			var jsonSerializerOptions = new JsonSerializerOptions() {
 				WriteIndented = false
 			};
 			jsonSerializerOptions.Converters.Add(new Meta.MarkovStructureJsonConverter());
@@ -274,14 +274,14 @@ namespace MarkovChain.Structs {
 			};
 
 			combinedSeeds.AddRange(from oseed in other.seeds
-									where ngramOtherRemap[oseed] >= seeds.Length
-									select oseed);
+				where ngramOtherRemap[oseed] >= seeds.Length
+				select oseed);
 
 			// Put it all together
 			return new MarkovStructure(combinedDictionary.ToArray(),
-										combinedNGrams.ToArray(),
-										combinedLinks,
-										combinedSeeds.ToArray());
+				combinedNGrams.ToArray(),
+				combinedLinks,
+				combinedSeeds.ToArray());
 		}
 
 		/// <summary>
@@ -293,8 +293,8 @@ namespace MarkovChain.Structs {
 		/// to prototype of successors (which maps succeeding index to weight)</param>
 		/// <param name="sds">Prototype of seed list, in hash map form for quick access</param>
 		public MarkovStructure(string[] dic, ConcurrentQueue<NGram> grms,
-							ConcurrentDictionary<int, ConcurrentDictionary<int, int>> prototypeChainlinks,
-							ConcurrentDictionary<int, bool> sds) {
+			ConcurrentDictionary<int, ConcurrentDictionary<int, int>> prototypeChainlinks,
+			ConcurrentDictionary<int, bool> sds) {
 			// Pass along master dictionary
 			dictionary = dic;
 
@@ -397,7 +397,9 @@ namespace MarkovChain.Structs {
 		}
 
 		// TODO: add summary, create unit test
-		public MarkovSegment Combine(MarkovSegment other, int[] ngramOtherRemap, int ownNGramLength) {
+		public MarkovSegment Combine(MarkovSegment other,
+			int[] ngramOtherRemap,
+			int ownNGramLength) {
 			if (successors.Length == 0) return other;
 			if (other.successors.Length == 0) return this;
 
