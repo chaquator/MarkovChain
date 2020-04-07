@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 
 using System.Linq;
 
@@ -25,10 +26,6 @@ namespace MarkovChain {
 				outfileMarkov = "test.markov"
 			};
 #if true
-			int[] a = { 1, 2, 3, 4, 5 };
-			int[] b = a.Select(x => x * 2).ToArray();
-
-			Console.WriteLine($"a: {Utils.GCD(a)} b: {Utils.GCD(b)}");
 #else
 			Structs.MarkovStructure A = Structs.MarkovStructure.ReadFile("A.markov");
 			Structs.MarkovStructure H = Structs.MarkovStructure.ReadFile("H.markov");

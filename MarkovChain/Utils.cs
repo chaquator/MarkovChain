@@ -156,44 +156,5 @@ namespace MarkovChain {
 
 			list.Insert(bs, add);
 		}
-
-		// TODO: test
-		public static void ShiftItemTo<T>(this List<T> list, int index, int destination) {
-			if (list.Count <= 1) return;
-
-			// Case 1: index at destination
-			if (index == destination) return;
-
-			T temp;
-
-			// Case 2: index before destination
-			while (index < destination) {
-				// Swap with in front
-				temp = list[index + 1];
-				list[index + 1] = list[index];
-				list[index] = temp;
-
-				++index;
-			}
-
-			// Case 3: index after destination
-			while (index > destination) {
-				// Swap with behind
-				temp = list[index - 1];
-				list[index - 1] = list[index];
-				list[index] = temp;
-
-				--index;
-			}
-		}
-
-		// TODO: test
-		public static void ResortSingle<T>(this List<T> list, int index, IComparer<T> comp) {
-			// Will find new position of element at src in list and move it by shifting other elements around
-			int bs = list.BinarySearch(list[index], comp);
-			bs = (bs == -1) ? 0 : (bs < 0) ? ~bs : bs;
-
-			list.ShiftItemTo(index, bs);
-		}
 	}
 }

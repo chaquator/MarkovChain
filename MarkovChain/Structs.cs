@@ -429,7 +429,8 @@ namespace MarkovChain.Structs {
 
 					// TODO: really wanna not have O(n) but idk
 					// First, grab the relevant successor and remove
-					NGramSuccessor ownSuccessor = combinedSuccessors[index];
+					var ownSuccessor = combinedSuccessors[index];
+
 					combinedSuccessors.RemoveAt(index);
 
 					// Combine weights
