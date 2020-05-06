@@ -9,7 +9,6 @@ namespace MarkovChain {
 			// TODO: seperate between ingesting and input/output options
 			Ingesting.IngestOptions opts = new Ingesting.IngestOptions {
 				infileCSV = "m.csv",
-				csvColumn = "Content",
 				regexFilters = new Tuple<string, string>[]{
 					Tuple.Create(@"\b?@\S+\s*", " "), // filter @person's
 					Tuple.Create(@"\b?https?.*\s*", " "), // filter URLs
@@ -22,8 +21,7 @@ namespace MarkovChain {
 					Tuple.Create(@"\s+$", ""), // closing spaces
 					Tuple.Create(@"\s{2,}", " ") // excess space (also handles newlines)
 				},
-				gramSize = 2,
-				outfileMarkov = "test.markov"
+				gramSize = 2
 			};
 #if true
 #else

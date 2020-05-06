@@ -17,16 +17,11 @@ namespace MarkovChain.Ingesting {
 	/// <summary>
 	/// Struct representing options for ingesting process
 	/// </summary>
-	public struct IngestOptions {
+	public class IngestOptions {
 		/// <summary>
 		/// Filename for input CSV file
 		/// </summary>
 		public string infileCSV;
-
-		/// <summary>
-		/// Name of column to match and pull comments from (default "Content")
-		/// </summary>
-		public string csvColumn;
 
 		/// <summary>
 		/// Array of string pairs in the form of (reg, rep) where
@@ -39,17 +34,81 @@ namespace MarkovChain.Ingesting {
 		/// Unsigned long representing size of n-gram for a markov chain segment
 		/// </summary>
 		public int gramSize;
+	}
 
-		/// <summary>
-		/// Filename for output markov file
-		/// </summary>
-		public string outfileMarkov;
+	// Plan: Allow for ingesting to synthesize multiple markovstructures from single input file
+	//	Split pipeline into 2 parts
+	//		[Ingesting single filter] --(Multiplexed by user-name)--> [The rest] --> Different MarkovStructures
+
+	//	Let's loft every stage into its own class
+	//		[MASTER PIPELINE] --
+	//		Input CSV --> [INGESTER] --> (Username, Message) -- Message data
+	//		Message data --> [MASTER PIPELINE'S RESPONSIBILITY] --> Message string
+	//		[POST MUX PIPE COLLECION] --
+	//		Message string --> [FILTER] --> Message string
+	//		Message string --> [DICTIONARIZER] --> Sentence bank
+	//		Sentnece bank --> [MARKOVIZER] --> Markov Structure Prototype
+
+	class SentenceBank {
+		public List<string> dictionary;
+		public ConcurrentQueue<int[]> sentences;
+
+		public SentenceBank() {
+			dictionary = new List<string>();
+			sentences = new ConcurrentQueue<int[]>();
+		}
+	}
+
+	struct MarkovStructProto {
+		public IEnumerable<string> dictionary;
+		public IEnumerable<NGram> ngrams;
+		public ConcurrentDictionary<int, ConcurrentDictionary<int, int>> prototypeChainlinks;
+		public ConcurrentDictionary<int, bool> seeds;
+	}
+
+	// Ingester class will pull from CSV file
+	class Ingester {
+		private readonly ConcurrentQueue<Tuple<string, string>> outMessageDatas;
+		public bool PipeSealed { get; private set; }
+
+		private readonly string infileCSV;
+
+		public Ingester(string inCSV, ConcurrentQueue<Tuple<string, string>> msgs) {
+			infileCSV = inCSV;
+			outMessageDatas = msgs;
+			PipeSealed = false;
+		}
+	}
+
+	class Filter {
+		public readonly ConcurrentQueue<Tuple<string, string>> inMessageDatas;
+		private readonly ConcurrentQueue<string> outMessageStrings;
+
+		private readonly Tuple<string, string>[] regexFilters;
+
+		public Filter(ConcurrentQueue<string> message_strings, Tuple<string, string>[] filters) {
+			outMessageStrings = message_strings;
+			regexFilters = filters;
+
+			inMessageDatas = new ConcurrentQueue<Tuple<string, string>>();
+		}
+	}
+
+	class Dictionarizer {
+		public readonly ConcurrentQueue<string> inMessageStrings;
+		private readonly SentenceBank outSentenceBank;
+
+		public Dictionarizer(SentenceBank bank) {
+			outSentenceBank = bank;
+
+			inMessageStrings = new ConcurrentQueue<string>();
+		}
 	}
 
 	/// <summary>
 	/// Main object to facilitate concurrent pipelined ingesting
 	/// </summary>
-	public class Pipeline {
+	public abstract class Pipeline {
 		// ---Pipeline
 		//	INPUT CSV --(INGESTING) --> RAW STRINGS --(FILTERING)--> LIST OF SENTENCE STRINGS --(DICTIONARIZING)-->
 		//	--> SENTENCE BANK --(MARKOVIZING)--> MARKOV STRUCTURE
@@ -146,7 +205,6 @@ namespace MarkovChain.Ingesting {
 
 			// TODO: fancy output where each thread uses a callback function to write to specific console line
 			//			-output in console size of all conqueues so for large data sets it can be seen progressing
-			// TODO: consider lofting out each stage (and threads) into its own class for variable seperation
 
 			// Gram size precondition
 			if (options.gramSize < 1) {
@@ -190,14 +248,13 @@ namespace MarkovChain.Ingesting {
 				// Discover index for relevant column (options.csv_column)
 				uint columnIndex = 0;
 				foreach (string f in fields) {
-					if (f == options.csvColumn) break;
+					if (f == "Content") break;
 					++columnIndex;
 				}
 
 				// If no index discovered, failure
 				if (columnIndex == fields.Length) {
 					status = Status.ErrorColumnNotFound;
-					FailureCallback();
 					return;
 				}
 
@@ -457,18 +514,6 @@ namespace MarkovChain.Ingesting {
 				} else {
 					Thread.Yield();
 				}
-			}
-		}
-
-		/// <summary>
-		/// Failure callback function, executes whenver there is some sort of failure.
-		/// </summary>
-		private void FailureCallback() {
-			Console.WriteLine("Failure has occured!");
-			switch (status) {
-				case Status.ErrorColumnNotFound:
-					Console.WriteLine("Column {0} not found in {1}!", options.csvColumn, options.infileCSV);
-					break;
 			}
 		}
 
