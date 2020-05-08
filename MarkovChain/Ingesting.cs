@@ -10,6 +10,7 @@ using Microsoft.VisualBasic.FileIO; // For CSV parsing
 
 using MarkovChain.Structs;
 using Microsoft.VisualBasic;
+using System.ComponentModel;
 
 /// <summary>
 /// Ingesting namespace
@@ -59,20 +60,12 @@ namespace MarkovChain.Ingesting {
 	//		Run method does task. Returns and sets Completed flag to true
 
 	class SentenceBank {
-		public List<string> dictionary;
+		public string[] dictionary;
 		public ConcurrentQueue<int[]> sentences;
 
 		public SentenceBank() {
-			dictionary = new List<string>();
 			sentences = new ConcurrentQueue<int[]>();
 		}
-	}
-
-	struct MarkovStructProto {
-		public IEnumerable<string> dictionary;
-		public IEnumerable<NGram> ngrams;
-		public ConcurrentDictionary<int, ConcurrentDictionary<int, int>> prototypeChainlinks;
-		public ConcurrentDictionary<int, bool> seeds;
 	}
 
 	// lord forgive me
@@ -89,12 +82,6 @@ namespace MarkovChain.Ingesting {
 		public readonly ConcurrentQueue<MessageData> outMessageDatas;
 
 		private readonly string infileCSV;
-
-		public Ingester(string inCSV) {
-			infileCSV = inCSV;
-
-			outMessageDatas = new ConcurrentQueue<MessageData>();
-		}
 
 		public void Run() {
 			// Console.WriteLine("[CSV]: Starting...");
@@ -144,18 +131,99 @@ namespace MarkovChain.Ingesting {
 			// Console.WriteLine("[CSV]: Finished!");
 			Completed = true;
 		}
+
+		public Ingester(string inCSV) {
+			infileCSV = inCSV;
+
+			outMessageDatas = new ConcurrentQueue<MessageData>();
+		}
 	}
 
 	// Message string --> [FILTER] --> Message string
 	class Filter : Completable {
+		private readonly Ingester prev;
 		private readonly ConcurrentQueue<string> inMessages;
 		public readonly ConcurrentQueue<string> outMessageStrings;
 
 		private readonly Tuple<string, string>[] regexFilters;
 
-		public Filter(Tuple<string, string>[] filters, ConcurrentQueue<string> msgs) {
+		private bool FlagCSV {
+			get {
+				return prev.Completed;
+			}
+		}
+
+		/// <summary>
+		/// Filtering leader thread. Launches filtering work
+		/// thread(s), manages finished flag for filtering
+		/// </summary>
+		/// <remarks>Finished flag :- all filtering thread(s) are finished</remarks>
+		private void Lead() {
+			//	Filtering master thread --
+			//		Launches all filtering threads
+			//		Manages finished flag for filtering
+			//		Finished flag :- all filtering threads are finished
+
+			int concur = 1; // TODO: put this into options
+
+			Task[] workers = new Task[concur];
+
+			// Console.WriteLine("[Filter Lead]: Dispatching {0} workers...", concur);
+
+			for (int i = 0; i < concur; ++i) {
+				workers[i] = Task.Run(() => Work(i));
+			}
+
+			Task.WaitAll(workers);
+
+			// Console.WriteLine("[Filter Lead]: Workers finished!");
+
+			Completed = true;
+		}
+
+		/// <summary>
+		/// Filtering work thread(s).
+		/// </summary>
+		private void Work(int id) {
+			//	Filtering thread(s) --
+			//		until CSV Ingest is finished (known by flag),
+			//		take one line and run through filters, then queue onto sentence string queue for dictionarizing
+			//		Finished flag :- CSV Ingest is finished, Filtering queue is empty
+
+			// TODO: consider switching to local queues which leading thread populates some day (may improve concurrency?)
+
+			// Console.WriteLine("[Filter #{0}]: Starting...", id);
+
+			// Stop :- csv_ingest_finihed, conqueue_csv.IsEmpty
+			while (!(FlagCSV && inMessages.IsEmpty)) {
+				if (inMessages.TryDequeue(out string piece)) {
+					// Take piece out, run through filters, enqueue if applicable
+					foreach (var filter in regexFilters) {
+						piece = Regex.Replace(piece, filter.Item1, filter.Item2);
+
+						// No bother filtering if string is already empty
+						if (piece == "") break;
+					}
+
+					// Skip enqueuing string is empty
+					if (piece == "") continue;
+
+					outMessageStrings.Enqueue(piece);
+				} else {
+					// me guess is csv finished flag is still false, queue is empty waiting to be filled
+					// very slim chance flag is true, and there was a small race condition between
+					// entering the while and pulling
+					Thread.Yield();
+				}
+			}
+
+			// Console.WriteLine("[Filter #{0}]: Finished!", id);
+		}
+
+		public Filter(Tuple<string, string>[] filters, Ingester previ, ConcurrentQueue<string> msgs) {
 			regexFilters = filters;
 
+			prev = previ;
 			inMessages = msgs;
 
 			outMessageStrings = new ConcurrentQueue<string>();
@@ -164,42 +232,273 @@ namespace MarkovChain.Ingesting {
 
 	// Message string --> [DICTIONARIZER] --> Sentence bank
 	class Dictionarizer : Completable {
+		private readonly Filter prev;
 		private readonly ConcurrentQueue<string> inMessageStrings;
 		public readonly SentenceBank outSentenceBank;
 
-		public Dictionarizer(ConcurrentQueue<string> msgs) {
+		private readonly ConcurrentDictionary<string, int> workingMasterWordCloud;
+		private readonly ConcurrentQueue<string> workingMasterDictionary;
+		private readonly ConcurrentQueue<int[]> conqueDictionarized;
+
+		private bool FlagFilter {
+			get {
+				return prev.Completed;
+			}
+		}
+
+		private void Lead() {
+			//	Dictionarization master thread --
+			//		Has master word-cloud, word-list, sentence queue for markovization
+			//		Finished flag :-	all dictionarization threads are themselves finished,
+			//							their local lists have been processed into master dictioanry,
+			//							master dictionary has been written out,
+			//							all sentences from each local thread have been enqueued--
+			//								--into master sentence queue for markovization
+
+			int concur = 1; // TODO: put this into options someday
+
+			// Master word cloud, master word list
+
+			// Launch threads
+			Task[] workers = new Task[concur];
+
+			Console.WriteLine("[Dictionarize Lead]: Dispatching {0} workers...", concur);
+
+			for (int i = 0; i < concur; ++i) {
+				workers[i] = Task.Run(() => Work(i));
+			}
+
+			Task.WaitAll(workers);
+
+			Console.WriteLine("[Dictionarize Lead]: Workers finished!");
+
+			// Transform working master dictionary to final master dictionary
+			outSentenceBank.dictionary = workingMasterDictionary.ToArray();
+
+			Completed = true;
+		}
+
+		private void Work(int id) {
+			//	Dictionarizing thread(s) --
+			//		Dequeue a sentence string from preceeding filtered queue
+			//		construct dictionarize w/ master cloud and master list
+			//		push dictionarized sentence to conqueue
+			//		Finished flag :- Filtering is finished, filtered strings queue is empty
+
+			Console.WriteLine("[Dictionarize #{0}]: Starting...", id);
+
+			while (!FlagFilter || !inMessageStrings.IsEmpty) {
+				List<int> cursent; // current dictionarized sentence
+
+				if (inMessageStrings.TryDequeue(out string sentence)) {
+					// We have a sentence, dictionarize each word
+					cursent = new List<int>();
+
+					// Dictionarize
+					foreach (string word in sentence.WordList()) {
+						if (!workingMasterWordCloud.TryGetValue(word, out int index)) {
+							// There is no index for the current word, we must add one
+							index = workingMasterDictionary.Count();
+
+							workingMasterDictionary.Enqueue(word);
+							workingMasterWordCloud[word] = index;
+						} // else, the trygetvalue succeeded, we have an index (no further action necessary)
+
+						cursent.Add(index);
+					}
+
+					// Add "end of sentence" symbol
+					cursent.Add(-1);
+
+					// Enqueue array onto conqueue
+					conqueDictionarized.Enqueue(cursent.ToArray());
+				} else {
+					// waiting on queue to be filled
+					Thread.Yield();
+				}
+			}
+
+			Console.WriteLine("[Dictionarize #{0}]: Finished!", id);
+		}
+
+		public Dictionarizer(Filter previ, ConcurrentQueue<string> msgs) {
+			prev = previ;
 			inMessageStrings = msgs;
 
-			SentenceBank outSentenceBank = new SentenceBank() {
-				dictionary = new List<string>(),
-				sentences = new ConcurrentQueue<int[]>()
-			};
+			outSentenceBank = new SentenceBank();
+
+			workingMasterWordCloud = new ConcurrentDictionary<string, int>();
+			workingMasterDictionary = new ConcurrentQueue<string>();
+			conqueDictionarized = new ConcurrentQueue<int[]>();
 		}
 	}
 
 	// Sentnece bank --> [MARKOVIZER] --> Markov Structure Prototype
 	class Markovizer : Completable {
+		private readonly Dictionarizer prev;
 		private readonly SentenceBank inSentenceBank;
-		public MarkovStructProto outProto { get; private set; }
+		public MarkovStructure outMarkovStruct { get; private set; }
+
+		private readonly int gram_size;
 
 		private ConcurrentQueue<NGram> workingNGrams;
+		private readonly ConcurrentDictionary<NGram, int> workingNGramCloud;
 		private ConcurrentDictionary<int, ConcurrentDictionary<int, int>> workingSuccessors;
 		private ConcurrentDictionary<int, bool> workingSeeds;
 
-		private void Complete() {
-			outProto = new MarkovStructProto() {
-				dictionary = inSentenceBank.dictionary,
-				ngrams = workingNGrams,
-				prototypeChainlinks = workingSuccessors,
-				seeds = workingSeeds
-			};
+		private bool FlagDictionarized {
+			get {
+				return prev.Completed;
+			}
+		}
+
+		private void Lead() {
+			//	Markovizing master thread -- 
+			//		Has master ngrams collection, concurrentqueue of ngrams which will be referred by indeces in other vars
+			//		Has master ngram seed collection, concurrent bag of integers which point to indeces
+			//		Has successor dictionary which maps an index to a counting dictionary -- prototype to markovstructure struct
+			//			Counter dictionary maps index to count -- prototype to ngram-successor struct
+			//		Launches all markovizing threads
+			//		Whenever all markovization threads are finished-- construct MarkovStructure with structures
+
+			int concur = 1; // TOOD: put this into options some day
+
+			// Launch threads
+			Task[] workers = new Task[concur];
+
+			Console.WriteLine("[Markovization Lead]: Dispatching {0} workers...", concur);
+
+			for (int i = 0; i < concur; ++i) {
+				workers[i] = Task.Run(() => Work(i));
+			}
+
+			Task.WaitAll(workers);
+
+			Console.WriteLine("[Markovization Lead]: Workers finished!");
+
+			// Create finished markovization product
+			outMarkovStruct = new MarkovStructure(inSentenceBank.dictionary, workingNGrams,
+				workingSuccessors, workingSeeds);
 			Completed = true;
 		}
 
-		public Markovizer(SentenceBank inbank) {
+		private void Work(int id) {
+			//	Markovizing thread(s) --
+			//		Takes a dictionarized sentence off queue if available
+			//		Markovizing sentence --
+			//			Starting index at 1
+			//			Declare current gram, new gram
+			//			Grab first gram:
+			//			If sentence size is lte gram size
+			//				current gram size is sentence size, grab available words, process into current gram
+			//			Otherwsie grab gram size, set as current gram
+			//			Put this first gram in seed list, if not there already
+			//			Loop until positioned where gram size grabs last word (pos < len-size) --
+			//				Grab new gram of gram size in overlapping fashion (from index to index+gram size)
+			//				In current grams successor's, incremeent count pointed to by new gram
+			//				If no count exists (new successor), set count pointed to by new gram to 1
+			//				Set current gram = new gram
+			//				Increment index
+			//		Finished flag :- dictionarized conqueue is empty, dictionarization flag is true
+
+			while (!inSentenceBank.sentences.IsEmpty || !FlagDictionarized) {
+				int pos, // position along sentence
+					index, // index of current ngram
+					indexOfSuccessor; // index of succeeding ngram
+
+				NGram curgram;
+
+				if (inSentenceBank.sentences.TryDequeue(out int[] cursent)) {
+					pos = 0;
+
+					// Grab firs gram
+
+					// Short-circuit procedure for when sentence is to be made up of one gram
+					if (cursent.Length <= gram_size) {
+						// Sentence is one gram which may or may not be short
+						curgram = new NGram(cursent);
+
+						// Register, set as seed
+						workingSeeds[MarkovizationRegisterNGram(ref curgram)] = true;
+
+						// Move on with next sentence
+						continue;
+					}
+
+					//Regular procedure, grabs first gram, regisers, and loops to the end grabbing grams
+					curgram = MarkovizationIngestNGram(cursent, pos++);
+					index = MarkovizationRegisterNGram(ref curgram);
+
+					// Register as seed
+					workingSeeds[index] = true;
+
+					//	In cases where sentence is made of more than 1 gram
+					//		visualization, length is 6, gram-size is 3:
+					//			0 1 2 3 4 -1
+					//			      ^stop
+					//		pos <= 6[length] - 3[size]
+					while (pos <= cursent.Length - gram_size) {
+						curgram = MarkovizationIngestNGram(cursent, pos++);
+						indexOfSuccessor = MarkovizationRegisterNGram(ref curgram);
+
+						// Update (or establish) successor counter
+						if (workingSuccessors[index].ContainsKey(indexOfSuccessor)) {
+							workingSuccessors[index][indexOfSuccessor] = workingSuccessors[index][indexOfSuccessor] + 1;
+						} else {
+							workingSuccessors[index][indexOfSuccessor] = 1;
+						}
+
+						// Shift out the old
+						index = indexOfSuccessor;
+					}
+				} else {
+					Thread.Yield();
+				}
+			}
+		}
+
+		/// <summary>
+		/// Ingests NGram
+		/// </summary>
+		/// <param name="cursent"></param>
+		/// <param name="position"></param>
+		/// <returns></returns>
+		private NGram MarkovizationIngestNGram(int[] cursent, int position) {
+			int[] protoGram = new int[gram_size];
+			Array.Copy(cursent, position, protoGram, 0, gram_size);
+			return new NGram(protoGram);
+		}
+
+		/// <summary>
+		/// Add NGram to master structure, return its index
+		/// </summary>
+		/// <param name="gram"></param>
+		/// <returns></returns>
+		private int MarkovizationRegisterNGram(ref NGram gram) {
+			// Get corresponding index of first
+			if (!workingNGramCloud.TryGetValue(gram, out int index)) {
+				// Gram is unique as of yet
+				index = workingNGramCloud.Count();
+
+				// Put in list, get index
+				workingNGrams.Enqueue(gram);
+				workingNGramCloud[gram] = index;
+
+				// Create new successors dictioanry
+				workingSuccessors[index] = new ConcurrentDictionary<int, int>();
+			}
+
+			return index;
+		}
+
+		public Markovizer(int gram_s, Dictionarizer previ, SentenceBank inbank) {
+			gram_size = gram_s;
+
+			prev = previ;
 			inSentenceBank = inbank;
 
 			workingNGrams = new ConcurrentQueue<NGram>();
+			workingNGramCloud = new ConcurrentDictionary<NGram, int>();
 			workingSuccessors = new ConcurrentDictionary<int, ConcurrentDictionary<int, int>>();
 			workingSeeds = new ConcurrentDictionary<int, bool>();
 		}
@@ -208,9 +507,15 @@ namespace MarkovChain.Ingesting {
 	// Combines Filter, Dictionarizer, and Markovizer into single piece for easy multiplexing
 	// Message String --> [Post Filter Pipe] --> Markov Struct Prototype
 	class PostFilterPipe {
-		public MarkovStructProto OutProto { 
+		public MarkovStructure OutProto { 
 			get {
-				return localMark.outProto;
+				return localMark.outMarkovStruct;
+			}
+		}
+
+		public bool Completed {
+			get {
+				return localMark.Completed;
 			}
 		}
 
@@ -218,11 +523,16 @@ namespace MarkovChain.Ingesting {
 		Dictionarizer localDic;
 		Markovizer localMark;
 
-		public PostFilterPipe(Tuple<string, string>[] regex, ConcurrentQueue<string> msgs) {
-			localFilter = new Filter(regex, msgs);
-			localDic = new Dictionarizer(localFilter.outMessageStrings);
-			localMark = new Markovizer(localDic.outSentenceBank);
+		public PostFilterPipe(IngestOptions opt, Ingester filter_previ, ConcurrentQueue<string> msgs) {
+			localFilter = new Filter(opt.regexFilters, filter_previ, msgs);
+			localDic = new Dictionarizer(localFilter, localFilter.outMessageStrings);
+			localMark = new Markovizer(opt.gramSize, localDic, localDic.outSentenceBank);
 		}
+	}
+
+	// Ingestion options --> [Master Pipe] --> MarkovStructs
+	class MasterPipe {
+		
 	}
 
 	/// <summary>
@@ -264,7 +574,6 @@ namespace MarkovChain.Ingesting {
 		private readonly ConcurrentDictionary<int, bool> workingMasterSeeds;
 		private readonly ConcurrentDictionary<int,
 						ConcurrentDictionary<int, int>> workingMasterSuccessors;
-
 
 		// Enums
 
