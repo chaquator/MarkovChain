@@ -9,11 +9,14 @@ using System.Text.RegularExpressions; // regex
 using Microsoft.VisualBasic.FileIO; // For CSV parsing
 
 using MarkovChain.Structs;
+using Microsoft.VisualBasic;
 
 /// <summary>
 /// Ingesting namespace
 /// </summary>
 namespace MarkovChain.Ingesting {
+	using MessageData = Tuple<int, string>;
+
 	/// <summary>
 	/// Struct representing options for ingesting process
 	/// </summary>
@@ -38,7 +41,7 @@ namespace MarkovChain.Ingesting {
 
 	// Plan: Allow for ingesting to synthesize multiple markovstructures from single input file
 	//	Split pipeline into 2 parts
-	//		[Ingesting single filter] --(Multiplexed by user-name)--> [The rest] --> Different MarkovStructures
+	//		[Ingesting] --(Multiplexed into user-specific pipes by master pipeline)--> [The rest] --> Different MarkovStructures
 
 	//	Let's loft every stage into its own class
 	//		[MASTER PIPELINE] --
@@ -48,6 +51,12 @@ namespace MarkovChain.Ingesting {
 	//		Message string --> [FILTER] --> Message string
 	//		Message string --> [DICTIONARIZER] --> Sentence bank
 	//		Sentnece bank --> [MARKOVIZER] --> Markov Structure Prototype
+
+	//	Pipe piece class structure
+	//		Has inputs, outputs
+	//			Inputs are created by previous stage (with the exception of ingester)
+	//			Outputs are created by class
+	//		Run method does task. Returns and sets Completed flag to true
 
 	class SentenceBank {
 		public List<string> dictionary;
@@ -66,42 +75,153 @@ namespace MarkovChain.Ingesting {
 		public ConcurrentDictionary<int, bool> seeds;
 	}
 
-	// Ingester class will pull from CSV file
-	class Ingester {
-		private readonly ConcurrentQueue<Tuple<string, string>> outMessageDatas;
-		public bool PipeSealed { get; private set; }
+	// lord forgive me
+	class Completable {
+		public bool Completed { get; protected set; }
+
+		public Completable() {
+			Completed = false;
+		}
+	}
+
+	// Input CSV --> [INGESTER] --> (Username, Message) -- Message data
+	class Ingester : Completable {
+		public readonly ConcurrentQueue<MessageData> outMessageDatas;
 
 		private readonly string infileCSV;
 
-		public Ingester(string inCSV, ConcurrentQueue<Tuple<string, string>> msgs) {
+		public Ingester(string inCSV) {
 			infileCSV = inCSV;
-			outMessageDatas = msgs;
-			PipeSealed = false;
+
+			outMessageDatas = new ConcurrentQueue<MessageData>();
+		}
+
+		public void Run() {
+			// Console.WriteLine("[CSV]: Starting...");
+			using (TextFieldParser parser = new TextFieldParser(infileCSV)) {
+				parser.TextFieldType = FieldType.Delimited;
+				parser.SetDelimiters(";");
+
+				// Read first row
+				string[] fields;
+				fields = parser.ReadFields();
+
+				// Discover index for relevant column (options.csv_column)
+				int columnIndex = -1;
+				int userIndex = -1;
+				for (int i = 0; i < fields.Length; ++i) {
+					switch (fields[i]) {
+						case "AuthorID":
+							userIndex = i;
+							break;
+						case "Content":
+							columnIndex = i;
+							break;
+					}
+				}
+
+				// If no index discovered, failure
+				if (columnIndex == -1 || userIndex == -1) {
+					// TODO: error handling
+					return;
+				}
+
+				// While not end of stream, read off specific column, push onto filter queue
+				while (!parser.EndOfData) {
+					fields = parser.ReadFields();
+
+					if (!Int32.TryParse(fields[userIndex], out int user)) {
+						// TODO: error hadnling
+						return;
+					}
+
+					string msg = fields[columnIndex];
+
+					if (msg != "") outMessageDatas.Enqueue(Tuple.Create(user, msg));
+				}
+			}
+
+			// Console.WriteLine("[CSV]: Finished!");
+			Completed = true;
 		}
 	}
 
-	class Filter {
-		public readonly ConcurrentQueue<Tuple<string, string>> inMessageDatas;
-		private readonly ConcurrentQueue<string> outMessageStrings;
+	// Message string --> [FILTER] --> Message string
+	class Filter : Completable {
+		private readonly ConcurrentQueue<string> inMessages;
+		public readonly ConcurrentQueue<string> outMessageStrings;
 
 		private readonly Tuple<string, string>[] regexFilters;
 
-		public Filter(ConcurrentQueue<string> message_strings, Tuple<string, string>[] filters) {
-			outMessageStrings = message_strings;
+		public Filter(Tuple<string, string>[] filters, ConcurrentQueue<string> msgs) {
 			regexFilters = filters;
 
-			inMessageDatas = new ConcurrentQueue<Tuple<string, string>>();
+			inMessages = msgs;
+
+			outMessageStrings = new ConcurrentQueue<string>();
 		}
 	}
 
-	class Dictionarizer {
-		public readonly ConcurrentQueue<string> inMessageStrings;
-		private readonly SentenceBank outSentenceBank;
+	// Message string --> [DICTIONARIZER] --> Sentence bank
+	class Dictionarizer : Completable {
+		private readonly ConcurrentQueue<string> inMessageStrings;
+		public readonly SentenceBank outSentenceBank;
 
-		public Dictionarizer(SentenceBank bank) {
-			outSentenceBank = bank;
+		public Dictionarizer(ConcurrentQueue<string> msgs) {
+			inMessageStrings = msgs;
 
-			inMessageStrings = new ConcurrentQueue<string>();
+			SentenceBank outSentenceBank = new SentenceBank() {
+				dictionary = new List<string>(),
+				sentences = new ConcurrentQueue<int[]>()
+			};
+		}
+	}
+
+	// Sentnece bank --> [MARKOVIZER] --> Markov Structure Prototype
+	class Markovizer : Completable {
+		private readonly SentenceBank inSentenceBank;
+		public MarkovStructProto outProto { get; private set; }
+
+		private ConcurrentQueue<NGram> workingNGrams;
+		private ConcurrentDictionary<int, ConcurrentDictionary<int, int>> workingSuccessors;
+		private ConcurrentDictionary<int, bool> workingSeeds;
+
+		private void Complete() {
+			outProto = new MarkovStructProto() {
+				dictionary = inSentenceBank.dictionary,
+				ngrams = workingNGrams,
+				prototypeChainlinks = workingSuccessors,
+				seeds = workingSeeds
+			};
+			Completed = true;
+		}
+
+		public Markovizer(SentenceBank inbank) {
+			inSentenceBank = inbank;
+
+			workingNGrams = new ConcurrentQueue<NGram>();
+			workingSuccessors = new ConcurrentDictionary<int, ConcurrentDictionary<int, int>>();
+			workingSeeds = new ConcurrentDictionary<int, bool>();
+		}
+	}
+
+	// Combines Filter, Dictionarizer, and Markovizer into single piece for easy multiplexing
+	// Message String --> [Post Filter Pipe] --> Markov Struct Prototype
+	class PostFilterPipe {
+		public MarkovStructProto OutProto { 
+			get {
+				return localMark.outProto;
+			}
+		}
+
+		Filter localFilter;
+		Dictionarizer localDic;
+		Markovizer localMark;
+
+		public PostFilterPipe(Tuple<string, string>[] regex, ConcurrentQueue<string> msgs) {
+			localFilter = new Filter(regex, msgs);
+			localDic = new Dictionarizer(localFilter.outMessageStrings);
+			localMark = new Markovizer(localDic.outSentenceBank);
 		}
 	}
 
