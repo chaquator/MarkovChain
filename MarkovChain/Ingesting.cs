@@ -53,12 +53,6 @@ namespace MarkovChain.Ingesting {
 	//		Message string --> [DICTIONARIZER] --> Sentence bank
 	//		Sentnece bank --> [MARKOVIZER] --> Markov Structure Prototype
 
-	//	Pipe piece class structure
-	//		Has inputs, outputs
-	//			Inputs are created by previous stage (with the exception of ingester)
-	//			Outputs are created by class
-	//		Run method does task. Returns and sets Completed flag to true
-
 	class SentenceBank {
 		public string[] dictionary;
 		public ConcurrentQueue<int[]> sentences;
@@ -68,22 +62,28 @@ namespace MarkovChain.Ingesting {
 		}
 	}
 
-	// lord forgive me
-	class Completable {
+	//	Pipe piece class structure
+	//		Has inputs, outputs
+	//			Inputs are created by previous stage (with the exception of ingester)
+	//			Outputs are created by class
+	//		Run method does task. Returns and sets Completed flag to true
+	abstract class PipePiece {
 		public bool Completed { get; protected set; }
 
-		public Completable() {
+		public abstract void Run();
+
+		public PipePiece() {
 			Completed = false;
 		}
 	}
 
 	// Input CSV --> [INGESTER] --> (Username, Message) -- Message data
-	class Ingester : Completable {
+	class Ingester : PipePiece {
 		public readonly ConcurrentQueue<MessageData> outMessageDatas;
 
 		private readonly string infileCSV;
 
-		public void Run() {
+		public override void Run() {
 			// Console.WriteLine("[CSV]: Starting...");
 			using (TextFieldParser parser = new TextFieldParser(infileCSV)) {
 				parser.TextFieldType = FieldType.Delimited;
@@ -140,7 +140,7 @@ namespace MarkovChain.Ingesting {
 	}
 
 	// Message string --> [FILTER] --> Message string
-	class Filter : Completable {
+	class Filter : PipePiece {
 		private readonly Ingester prev;
 		private readonly ConcurrentQueue<string> inMessages;
 		public readonly ConcurrentQueue<string> outMessageStrings;
@@ -231,7 +231,7 @@ namespace MarkovChain.Ingesting {
 	}
 
 	// Message string --> [DICTIONARIZER] --> Sentence bank
-	class Dictionarizer : Completable {
+	class Dictionarizer : PipePiece {
 		private readonly Filter prev;
 		private readonly ConcurrentQueue<string> inMessageStrings;
 		public readonly SentenceBank outSentenceBank;
@@ -262,7 +262,7 @@ namespace MarkovChain.Ingesting {
 			// Launch threads
 			Task[] workers = new Task[concur];
 
-			Console.WriteLine("[Dictionarize Lead]: Dispatching {0} workers...", concur);
+			// Console.WriteLine("[Dictionarize Lead]: Dispatching {0} workers...", concur);
 
 			for (int i = 0; i < concur; ++i) {
 				workers[i] = Task.Run(() => Work(i));
@@ -270,7 +270,7 @@ namespace MarkovChain.Ingesting {
 
 			Task.WaitAll(workers);
 
-			Console.WriteLine("[Dictionarize Lead]: Workers finished!");
+			// Console.WriteLine("[Dictionarize Lead]: Workers finished!");
 
 			// Transform working master dictionary to final master dictionary
 			outSentenceBank.dictionary = workingMasterDictionary.ToArray();
@@ -285,7 +285,7 @@ namespace MarkovChain.Ingesting {
 			//		push dictionarized sentence to conqueue
 			//		Finished flag :- Filtering is finished, filtered strings queue is empty
 
-			Console.WriteLine("[Dictionarize #{0}]: Starting...", id);
+			// Console.WriteLine("[Dictionarize #{0}]: Starting...", id);
 
 			while (!FlagFilter || !inMessageStrings.IsEmpty) {
 				List<int> cursent; // current dictionarized sentence
@@ -318,7 +318,7 @@ namespace MarkovChain.Ingesting {
 				}
 			}
 
-			Console.WriteLine("[Dictionarize #{0}]: Finished!", id);
+			// Console.WriteLine("[Dictionarize #{0}]: Finished!", id);
 		}
 
 		public Dictionarizer(Filter previ, ConcurrentQueue<string> msgs) {
@@ -334,7 +334,7 @@ namespace MarkovChain.Ingesting {
 	}
 
 	// Sentnece bank --> [MARKOVIZER] --> Markov Structure Prototype
-	class Markovizer : Completable {
+	class Markovizer : PipePiece {
 		private readonly Dictionarizer prev;
 		private readonly SentenceBank inSentenceBank;
 		public MarkovStructure outMarkovStruct { get; private set; }
@@ -366,7 +366,7 @@ namespace MarkovChain.Ingesting {
 			// Launch threads
 			Task[] workers = new Task[concur];
 
-			Console.WriteLine("[Markovization Lead]: Dispatching {0} workers...", concur);
+			// Console.WriteLine("[Markovization Lead]: Dispatching {0} workers...", concur);
 
 			for (int i = 0; i < concur; ++i) {
 				workers[i] = Task.Run(() => Work(i));
@@ -374,7 +374,7 @@ namespace MarkovChain.Ingesting {
 
 			Task.WaitAll(workers);
 
-			Console.WriteLine("[Markovization Lead]: Workers finished!");
+			// Console.WriteLine("[Markovization Lead]: Workers finished!");
 
 			// Create finished markovization product
 			outMarkovStruct = new MarkovStructure(inSentenceBank.dictionary, workingNGrams,
