@@ -11,6 +11,7 @@ using Microsoft.VisualBasic.FileIO; // For CSV parsing
 using MarkovChain.Structs;
 using Microsoft.VisualBasic;
 using System.ComponentModel;
+using System.IO.Pipes;
 
 /// <summary>
 /// Ingesting namespace
@@ -93,7 +94,7 @@ namespace MarkovChain.Ingesting {
 				string[] fields;
 				fields = parser.ReadFields();
 
-				// Discover index for relevant column (options.csv_column)
+				// Discover indeces for relevant columns
 				int columnIndex = -1;
 				int userIndex = -1;
 				for (int i = 0; i < fields.Length; ++i) {
@@ -113,7 +114,7 @@ namespace MarkovChain.Ingesting {
 					return;
 				}
 
-				// While not end of stream, read off specific column, push onto filter queue
+				// While not end of stream, read off specific column, push out
 				while (!parser.EndOfData) {
 					fields = parser.ReadFields();
 
@@ -158,7 +159,7 @@ namespace MarkovChain.Ingesting {
 		/// thread(s), manages finished flag for filtering
 		/// </summary>
 		/// <remarks>Finished flag :- all filtering thread(s) are finished</remarks>
-		private void Lead() {
+		public override void Run() {
 			//	Filtering master thread --
 			//		Launches all filtering threads
 			//		Manages finished flag for filtering
@@ -246,7 +247,7 @@ namespace MarkovChain.Ingesting {
 			}
 		}
 
-		private void Lead() {
+		public override void Run() {
 			//	Dictionarization master thread --
 			//		Has master word-cloud, word-list, sentence queue for markovization
 			//		Finished flag :-	all dictionarization threads are themselves finished,
@@ -352,7 +353,7 @@ namespace MarkovChain.Ingesting {
 			}
 		}
 
-		private void Lead() {
+		public override void Run() {
 			//	Markovizing master thread -- 
 			//		Has master ngrams collection, concurrentqueue of ngrams which will be referred by indeces in other vars
 			//		Has master ngram seed collection, concurrent bag of integers which point to indeces
@@ -506,16 +507,12 @@ namespace MarkovChain.Ingesting {
 
 	// Combines Filter, Dictionarizer, and Markovizer into single piece for easy multiplexing
 	// Message String --> [Post Filter Pipe] --> Markov Struct Prototype
-	class PostFilterPipe {
-		public MarkovStructure OutProto { 
+	class PostIngestPipe : PipePiece {
+		public ConcurrentQueue<string> inMessages;
+
+		public MarkovStructure OutResult {
 			get {
 				return localMark.outMarkovStruct;
-			}
-		}
-
-		public bool Completed {
-			get {
-				return localMark.Completed;
 			}
 		}
 
@@ -523,16 +520,88 @@ namespace MarkovChain.Ingesting {
 		Dictionarizer localDic;
 		Markovizer localMark;
 
-		public PostFilterPipe(IngestOptions opt, Ingester filter_previ, ConcurrentQueue<string> msgs) {
+		public PostIngestPipe(IngestOptions opt, Ingester filter_previ, ConcurrentQueue<string> msgs) {
+			inMessages = msgs;
 			localFilter = new Filter(opt.regexFilters, filter_previ, msgs);
 			localDic = new Dictionarizer(localFilter, localFilter.outMessageStrings);
 			localMark = new Markovizer(opt.gramSize, localDic, localDic.outSentenceBank);
 		}
+
+		public override void Run() {
+			Task.WaitAll(new Task[] {
+				Task.Run(localFilter.Run),
+				Task.Run(localDic.Run),
+				Task.Run(localMark.Run)
+			});
+			Completed = true;
+		}
 	}
 
 	// Ingestion options --> [Master Pipe] --> MarkovStructs
-	class MasterPipe {
-		
+	class MarkovPipe : PipePiece {
+		private readonly IngestOptions ingestOptions;
+		private readonly Ingester localIngester;
+
+		public readonly Dictionary<int, MarkovStructure> Result;
+
+		// Post Filter Unit (in SOA form :^) )
+		private readonly Dictionary<int, PostIngestPipe> workingPostIngestPipes;
+		private readonly Dictionary<int, Task> workingPostIngestTasks;
+		private readonly Dictionary<int, ConcurrentQueue<string>> workingPostIngestInMsgs;
+
+		public override void Run() {
+			//	Set up CSV ingester (Run ingester as a task)
+			//	While !csv finished
+			//		Get messagedata if possible
+			//		If messagedata's user has not a post-filter-pipe, make one for it, put in dictionary
+			//		Otherwise, push to relevasnt pipe
+			//	Once while exits, we can wait on ingesting task and all post-filter-pipe tasks
+			//	For each post filter pipe collect its result and populate result with it
+
+			Task ingesting = Task.Run(localIngester.Run);
+
+			// Ingesting finished :- queue is empty & ingesting is completed
+			while (!localIngester.outMessageDatas.IsEmpty || !localIngester.Completed) {
+				if (!localIngester.outMessageDatas.TryDequeue(out MessageData messageData)) {
+					continue;
+				}
+
+				// Push to exisitng pipes, multiplex new ones
+				if (workingPostIngestInMsgs.TryGetValue(messageData.Item1, out ConcurrentQueue<string> localInMsg)) {
+					localInMsg.Enqueue(messageData.Item2);
+				} else {
+					ConcurrentQueue<string> lm = new ConcurrentQueue<string>();
+					PostIngestPipe lp = new PostIngestPipe(ingestOptions, localIngester, lm);
+					Task lt = Task.Run(lp.Run);
+
+					workingPostIngestPipes.Add(messageData.Item1, lp);
+					workingPostIngestTasks.Add(messageData.Item1, lt);
+					workingPostIngestInMsgs.Add(messageData.Item1, lm);
+				}
+			}
+
+			// Wait for all pipes to be done
+			ingesting.Wait();
+			Task.WaitAll(new List<Task>(workingPostIngestTasks.Values).ToArray());
+
+			// Populate Result dictionary
+			foreach (var kvp in workingPostIngestPipes) {
+				Result.Add(kvp.Key, kvp.Value.OutResult);
+			}
+
+			Completed = true;
+		}
+
+		public MarkovPipe(IngestOptions opts) {
+			ingestOptions = opts;
+			localIngester = new Ingester(ingestOptions.infileCSV);
+
+			workingPostIngestPipes = new Dictionary<int, PostIngestPipe>();
+			workingPostIngestTasks = new Dictionary<int, Task>();
+			workingPostIngestInMsgs = new Dictionary<int, ConcurrentQueue<string>>();
+
+			Result = new Dictionary<int, MarkovStructure>();
+		}
 	}
 
 	/// <summary>
