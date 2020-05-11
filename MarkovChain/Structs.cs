@@ -274,8 +274,8 @@ namespace MarkovChain.Structs {
 			};
 
 			combinedSeeds.AddRange(from oseed in other.seeds
-				where ngramOtherRemap[oseed] >= seeds.Length
-				select oseed);
+								   where ngramOtherRemap[oseed] >= seeds.Length
+								   select oseed);
 
 			// Put it all together
 			return new MarkovStructure(combinedDictionary.ToArray(),
@@ -346,15 +346,18 @@ namespace MarkovChain.Structs {
 		}
 
 		// Setup function which will normalize successors and compute running totals
-		// TODO: test
+		// TODO: thoroughly test
 		private void SetupSuccessorsAndRunningTotals(IEnumerable<NGramSuccessor> sucs) {
-			// Get GDC of weights
-			int GDC = Utils.GCD(sucs.Select(e => e.weight));
+			// TODO: investigate if any measures outside of length-checking is necessary (why was no exception raised when combining? likely becasue successor-less links were unique? idk prolly not)
+			if (sucs.Count() > 0) {
+				// Get GDC of weights
+				int GDC = Utils.GCD(sucs.Select(e => e.weight));
 
-			// Successors are divided by GDC
-			Parallel.ForEach(sucs, (successor) => {
-				successor.weight /= GDC;
-			});
+				// Successors are divided by GDC
+				Parallel.ForEach(sucs, (successor) => {
+					successor.weight /= GDC;
+				});
+			}
 			successors = sucs.ToArray();
 
 			// Compute running total
@@ -381,7 +384,7 @@ namespace MarkovChain.Structs {
 			NGramSuccessor.ReverseComparer reverseComparer = new NGramSuccessor.ReverseComparer();
 			foreach (var successor in prototypeSuccessors) successorList.SortAdd(new NGramSuccessor(successor.Key, successor.Value), reverseComparer);
 
-			SetupSuccessorsAndRunningTotals(successorList.ToArray());
+			SetupSuccessorsAndRunningTotals(successorList);
 		}
 
 		// For constructing from combine function

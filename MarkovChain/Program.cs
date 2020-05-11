@@ -25,6 +25,8 @@ namespace MarkovChain {
 			};
 
 			Ingesting.MarkovPipe pipe = new Ingesting.MarkovPipe(opts);
+			pipe.Run();
+			var a = pipe.Result;
 #if true
 #else
 			Structs.MarkovStructure A = Structs.MarkovStructure.ReadFile("A.markov");
