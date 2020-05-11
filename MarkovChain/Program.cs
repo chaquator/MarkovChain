@@ -2,11 +2,11 @@
 using System.Collections.Generic;
 
 using System.Linq;
+using System.Net.Http.Headers;
 
 namespace MarkovChain {
 	class Program {
 		static void Main() {
-			// TODO: seperate between ingesting and input/output options
 			Ingesting.IngestOptions opts = new Ingesting.IngestOptions {
 				infileCSV = "m.csv",
 				regexFilters = new Tuple<string, string>[]{
@@ -23,6 +23,8 @@ namespace MarkovChain {
 				},
 				gramSize = 2
 			};
+
+			Ingesting.MarkovPipe pipe = new Ingesting.MarkovPipe(opts);
 #if true
 #else
 			Structs.MarkovStructure A = Structs.MarkovStructure.ReadFile("A.markov");
