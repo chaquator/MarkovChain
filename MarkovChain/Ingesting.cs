@@ -56,8 +56,12 @@ namespace MarkovChain {
 		//		Message string --> [DICTIONARIZER] --> Sentence bank
 		//		Sentnece bank --> [MARKOVIZER] --> Markov Structure Prototype
 
-		// TODO: move task creation to within classes for cancellation and error handling, implement option to not multiplex to different users, keep track of all unqiue (user-id -> user-name)'s in CSV Ingest piece
+		// TODO: move task creation to within classes for cancellation and error handling
+			// Involves making Run private, adding a task property or method idk, and maybe refactoring code so that Work method is also accomplished as a task
+		// TODO: implement option to not multiplex to different users
+		// TODO: keep track of all unqiue (user-id -> user-name)'s in CSV Ingest piece
 		// TODO: test creation in main, generate sentences from each, try combining, etc.
+		// TODO: address exceptions in Ingester (test them, improve them)
 
 		class SentenceBank {
 			public string[] dictionary;
@@ -77,7 +81,7 @@ namespace MarkovChain {
 			public bool Completed { get; protected set; }
 
 			// Run method completes piece's task, once finished, completed flag should be true (if nothing goes wrong)
-			public abstract void Run();
+			protected abstract void Run();
 
 			public PipePiece() {
 				Completed = false;
@@ -90,7 +94,7 @@ namespace MarkovChain {
 
 			private readonly string infileCSV;
 
-			public override void Run() {
+			protected override void Run() {
 				// Console.WriteLine("[CSV]: Starting...");
 				using (TextFieldParser parser = new TextFieldParser(infileCSV)) {
 					parser.TextFieldType = FieldType.Delimited;
@@ -115,19 +119,15 @@ namespace MarkovChain {
 					}
 
 					// If no index discovered, failure
-					if (columnIndex == -1 || userIndex == -1) {
-						// TODO: error handling
-						return;
-					}
+					if (columnIndex == -1) throw new Exception("Ingester failed to find a column index.");
+					if (userIndex == -1) throw new Exception("Ingester failed to find a user id index.");
 
 					// While not end of stream, read off specific column, push out
 					while (!parser.EndOfData) {
 						fields = parser.ReadFields();
 
-						if (!UInt64.TryParse(fields[userIndex], out ulong user)) {
-							// TODO: error hadnling
-							return;
-						}
+						if (!UInt64.TryParse(fields[userIndex], out ulong user))
+							throw new Exception("Ingester failed to parse a user id.");
 
 						string msg = fields[columnIndex];
 
@@ -165,7 +165,7 @@ namespace MarkovChain {
 			/// thread(s), manages finished flag for filtering
 			/// </summary>
 			/// <remarks>Finished flag :- all filtering thread(s) are finished</remarks>
-			public override void Run() {
+			protected override void Run() {
 				//	Filtering master thread --
 				//		Launches all filtering threads
 				//		Manages finished flag for filtering
@@ -253,7 +253,7 @@ namespace MarkovChain {
 				}
 			}
 
-			public override void Run() {
+			protected override void Run() {
 				//	Dictionarization master thread --
 				//		Has master word-cloud, word-list, sentence queue for markovization
 				//		Finished flag :-	all dictionarization threads are themselves finished,
@@ -358,7 +358,7 @@ namespace MarkovChain {
 				}
 			}
 
-			public override void Run() {
+			protected override void Run() {
 				//	Markovizing master thread -- 
 				//		Has master ngrams collection, concurrentqueue of ngrams which will be referred by indeces in other vars
 				//		Has master ngram seed collection, concurrent bag of integers which point to indeces
@@ -525,7 +525,7 @@ namespace MarkovChain {
 			Dictionarizer localDic;
 			Markovizer localMark;
 
-			public override void Run() {
+			protected override void Run() {
 				// TODO: remove after testing
 				Task.Run(localFilter.Run).Wait();
 				Task.Run(localDic.Run).Wait();
@@ -568,7 +568,7 @@ namespace MarkovChain {
 
 			public bool Completed { get; private set; }
 
-			public void Run() {
+			protected void Run() {
 				//	Set up CSV ingester (Run ingester as a task)
 				//	While !csv finished
 				//		Get messagedata if possible
@@ -629,6 +629,8 @@ namespace MarkovChain {
 			}
 		}
 
+
+		// Soon to be obselete
 		/// <summary>
 		/// Main object to facilitate concurrent pipelined ingesting
 		/// </summary>
