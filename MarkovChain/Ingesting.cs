@@ -20,7 +20,6 @@ using System.Security.Cryptography;
 /// Ingesting namespace
 /// </summary>
 namespace MarkovChain {
-	using MessageData = Tuple<ulong, string>;
 	class Ingesting {
 
 		/// <summary>
@@ -58,12 +57,17 @@ namespace MarkovChain {
 		//		Message string --> [DICTIONARIZER] --> Sentence bank
 		//		Sentnece bank --> [MARKOVIZER] --> Markov Structure Prototype
 
-		// TODO: move task creation to within classes for cancellation and error handling
-			// Involves making Run private, adding a task property or method idk, and maybe refactoring code so that Work method is also accomplished as a task
+		// TODO: consider cancellation and error handling
 		// TODO: implement option to not multiplex to different users
 		// TODO: keep track of all unqiue (user-id -> user-name)'s in CSV Ingest piece
 		// TODO: test creation in main, generate sentences from each, try combining, etc.
 		// TODO: address exceptions in Ingester (test them, improve them)
+
+		class MessageData {
+			public ulong id;
+			public string name;
+			public string message;
+		}
 
 		class SentenceBank {
 			public string[] dictionary;
@@ -108,12 +112,16 @@ namespace MarkovChain {
 					fields = parser.ReadFields();
 
 					// Discover indeces for relevant columns
+					int userIdIndex = -1;
+					int userNameIndex = -1;
 					int columnIndex = -1;
-					int userIndex = -1;
 					for (int i = 0; i < fields.Length; ++i) {
 						switch (fields[i]) {
 							case "AuthorID":
-								userIndex = i;
+								userIdIndex = i;
+								break;
+							case "Author":
+								userNameIndex = i;
 								break;
 							case "Content":
 								columnIndex = i;
@@ -122,19 +130,25 @@ namespace MarkovChain {
 					}
 
 					// If no index discovered, failure
+					if (userIdIndex == -1) throw new Exception("Ingester failed to find a user id index.");
+					if (userNameIndex == -1) throw new Exception("Ingester failed to find a user name index.");
 					if (columnIndex == -1) throw new Exception("Ingester failed to find a column index.");
-					if (userIndex == -1) throw new Exception("Ingester failed to find a user id index.");
 
 					// While not end of stream, read off specific column, push out
 					while (!parser.EndOfData) {
 						fields = parser.ReadFields();
 
-						if (!UInt64.TryParse(fields[userIndex], out ulong user))
+						if (!UInt64.TryParse(fields[userIdIndex], out ulong user))
 							throw new Exception("Ingester failed to parse a user id.");
 
+						string name = fields[userNameIndex];
 						string msg = fields[columnIndex];
 
-						if (msg != "") outMessageDatas.Enqueue(Tuple.Create(user, msg));
+						if (msg != "") outMessageDatas.Enqueue(new MessageData {
+							id = user,
+							name = name,
+							message = msg
+						});
 					}
 				}
 
@@ -249,7 +263,7 @@ namespace MarkovChain {
 
 			private bool FlagFilter {
 				get {
-					return prev.Status == TaskStatus.RanToCompletion;
+					return prev.IsCompleted;
 				}
 			}
 
@@ -352,7 +366,7 @@ namespace MarkovChain {
 
 			private bool FlagDictionarized {
 				get {
-					return prev.Status == TaskStatus.RanToCompletion;
+					return prev.IsCompleted;
 				}
 			}
 
@@ -585,16 +599,19 @@ namespace MarkovChain {
 					}
 
 					// Push to exisitng pipes, multiplex new ones
-					if (workingPostIngestInMsgs.TryGetValue(messageData.Item1, out ConcurrentQueue<string> localInMsg)) {
-						localInMsg.Enqueue(messageData.Item2);
+					if (workingPostIngestInMsgs.TryGetValue(messageData.id, out ConcurrentQueue<string> localInMsg)) {
+						localInMsg.Enqueue(messageData.message);
 					} else {
 						ConcurrentQueue<string> lm = new ConcurrentQueue<string>();
 						PostIngestPipe lp = new PostIngestPipe(ingestOptions, localIngester, lm);
 
-						workingPostIngestPipes.Add(messageData.Item1, lp);
-						workingPostIngestInMsgs.Add(messageData.Item1, lm);
+						workingPostIngestPipes.Add(messageData.id, lp);
+						workingPostIngestInMsgs.Add(messageData.id, lm);
 
-						lm.Enqueue(messageData.Item2);
+						lm.Enqueue(messageData.message);
+
+						// Add new names
+						Names.Add(messageData.id, messageData.name);
 					}
 				}
 
@@ -615,6 +632,8 @@ namespace MarkovChain {
 
 				workingPostIngestPipes = new Dictionary<ulong, PostIngestPipe>();
 				workingPostIngestInMsgs = new Dictionary<ulong, ConcurrentQueue<string>>();
+
+				Names = new Dictionary<ulong, string>();
 			}
 		}
 
