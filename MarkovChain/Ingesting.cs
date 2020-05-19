@@ -13,6 +13,8 @@ using Microsoft.VisualBasic;
 using System.ComponentModel;
 using System.IO.Pipes;
 using System.Resources;
+using System.CodeDom;
+using System.Security.Cryptography;
 
 /// <summary>
 /// Ingesting namespace
@@ -76,15 +78,16 @@ namespace MarkovChain {
 		//		Has inputs, outputs
 		//			Inputs are created by previous stage (with the exception of ingester)
 		//			Outputs are created by class
-		//		Run method does task. Returns and sets Completed flag to true
+		//		Run method does task.
 		abstract class PipePiece {
-			public bool Completed { get; protected set; }
+			public Task PieceTask { get; }
 
 			// Run method completes piece's task, once finished, completed flag should be true (if nothing goes wrong)
 			protected abstract void Run();
 
 			public PipePiece() {
-				Completed = false;
+				// Work = new Task(Run);
+				PieceTask = Task.Run(Run); // TODO: decide whether Task.Run is better than new Task (latter delegated work until waited it seems like)
 			}
 		}
 
@@ -136,7 +139,6 @@ namespace MarkovChain {
 				}
 
 				// Console.WriteLine("[CSV]: Finished!");
-				Completed = true;
 			}
 
 			public Ingester(string inCSV) {
@@ -184,8 +186,6 @@ namespace MarkovChain {
 				Task.WaitAll(workers);
 
 				// Console.WriteLine("[Filter Lead]: Workers finished!");
-
-				Completed = true;
 			}
 
 			/// <summary>
@@ -240,7 +240,7 @@ namespace MarkovChain {
 
 		// Message string --> [DICTIONARIZER] --> Sentence bank
 		class Dictionarizer : PipePiece {
-			private readonly Filter prev;
+			private readonly Task prev;
 			private readonly ConcurrentQueue<string> inMessageStrings;
 			public readonly SentenceBank outSentenceBank;
 
@@ -249,7 +249,7 @@ namespace MarkovChain {
 
 			private bool FlagFilter {
 				get {
-					return prev.Completed;
+					return prev.Status == TaskStatus.RanToCompletion;
 				}
 			}
 
@@ -281,8 +281,6 @@ namespace MarkovChain {
 
 				// Transform working master dictionary to final master dictionary
 				outSentenceBank.dictionary = workingMasterDictionary.ToArray();
-
-				Completed = true;
 			}
 
 			private void Work(int id) {
@@ -328,7 +326,7 @@ namespace MarkovChain {
 				// Console.WriteLine("[Dictionarize #{0}]: Finished!", id);
 			}
 
-			public Dictionarizer(Filter previ, ConcurrentQueue<string> msgs) {
+			public Dictionarizer(Task previ, ConcurrentQueue<string> msgs) {
 				prev = previ;
 				inMessageStrings = msgs;
 
@@ -341,7 +339,7 @@ namespace MarkovChain {
 
 		// Sentnece bank --> [MARKOVIZER] --> Markov Structure Prototype
 		class Markovizer : PipePiece {
-			private readonly Dictionarizer prev;
+			private readonly Task prev;
 			private readonly SentenceBank inSentenceBank;
 			public MarkovStructure outMarkovStruct { get; private set; }
 
@@ -354,7 +352,7 @@ namespace MarkovChain {
 
 			private bool FlagDictionarized {
 				get {
-					return prev.Completed;
+					return prev.Status == TaskStatus.RanToCompletion;
 				}
 			}
 
@@ -385,7 +383,6 @@ namespace MarkovChain {
 				// Create finished markovization product
 				outMarkovStruct = new MarkovStructure(inSentenceBank.dictionary, workingNGrams,
 					workingSuccessors, workingSeeds);
-				Completed = true;
 			}
 
 			private void Work(int id) {
@@ -497,7 +494,7 @@ namespace MarkovChain {
 				return index;
 			}
 
-			public Markovizer(int gram_s, Dictionarizer previ, SentenceBank inbank) {
+			public Markovizer(int gram_s, Task previ, SentenceBank inbank) {
 				gram_size = gram_s;
 
 				prev = previ;
@@ -527,17 +524,14 @@ namespace MarkovChain {
 
 			protected override void Run() {
 				// TODO: remove after testing
-				Task.Run(localFilter.Run).Wait();
-				Task.Run(localDic.Run).Wait();
-				Task.Run(localMark.Run).Wait();
-				/*
-				Task.WaitAll(new Task[] {
-					Task.Run(localFilter.Run),
-					Task.Run(localDic.Run),
-					Task.Run(localMark.Run)
-				});
-				*/
-				Completed = true;
+				localFilter.PieceTask.Wait();
+				localDic.PieceTask.Wait();
+				localMark.PieceTask.Wait();
+				/*Task.WaitAll(new Task[] {
+					localFilter.PieceTask,
+					localDic.PieceTask,
+					localMark.PieceTask
+				});*/
 			}
 
 			// Pass through seal input to filter
@@ -548,8 +542,8 @@ namespace MarkovChain {
 			public PostIngestPipe(IngestOptions opt, Ingester filter_previ, ConcurrentQueue<string> msgs) {
 				inMessages = msgs;
 				localFilter = new Filter(opt.regexFilters, msgs);
-				localDic = new Dictionarizer(localFilter, localFilter.outMessageStrings);
-				localMark = new Markovizer(opt.gramSize, localDic, localDic.outSentenceBank);
+				localDic = new Dictionarizer(localFilter.PieceTask, localFilter.outMessageStrings);
+				localMark = new Markovizer(opt.gramSize, localDic.PieceTask, localDic.outSentenceBank);
 			}
 		}
 
@@ -558,15 +552,19 @@ namespace MarkovChain {
 			private readonly IngestOptions ingestOptions;
 			private readonly Ingester localIngester;
 
-			public readonly Dictionary<ulong, MarkovStructure> Result;
+			public Dictionary<ulong, MarkovStructure> Result { get; private set; }
 			public readonly Dictionary<ulong, string> Names;
 
 			// Post Filter Unit (in SOA form :^) )
 			private readonly Dictionary<ulong, PostIngestPipe> workingPostIngestPipes;
-			private readonly Dictionary<ulong, Task> workingPostIngestTasks;
 			private readonly Dictionary<ulong, ConcurrentQueue<string>> workingPostIngestInMsgs;
 
-			public bool Completed { get; private set; }
+			private Task[] Tasks {
+				get {
+					return (from pipe in workingPostIngestPipes
+							select pipe.Value.PieceTask).ToArray();
+				}
+			}
 
 			protected void Run() {
 				//	Set up CSV ingester (Run ingester as a task)
@@ -577,11 +575,11 @@ namespace MarkovChain {
 				//	Once while exits, we can wait on ingesting task and all post-filter-pipe tasks
 				//	For each post filter pipe collect its result and populate result with it
 
-				Task ingesting = Task.Run(localIngester.Run);
+				Task ingesting = localIngester.PieceTask;
 				ingesting.Wait(); // TODO: remove after testing
 
 				// Ingesting finished :- queue is empty & ingesting is completed
-				while (!localIngester.outMessageDatas.IsEmpty || !localIngester.Completed) {
+				while (!localIngester.outMessageDatas.IsEmpty || ingesting.IsCompleted) {
 					if (!localIngester.outMessageDatas.TryDequeue(out MessageData messageData)) {
 						continue;
 					}
@@ -592,10 +590,8 @@ namespace MarkovChain {
 					} else {
 						ConcurrentQueue<string> lm = new ConcurrentQueue<string>();
 						PostIngestPipe lp = new PostIngestPipe(ingestOptions, localIngester, lm);
-						Task lt = Task.Run(lp.Run);
 
 						workingPostIngestPipes.Add(messageData.Item1, lp);
-						workingPostIngestTasks.Add(messageData.Item1, lt);
 						workingPostIngestInMsgs.Add(messageData.Item1, lm);
 
 						lm.Enqueue(messageData.Item2);
@@ -607,14 +603,10 @@ namespace MarkovChain {
 
 				// Wait for all pipes to be done
 				ingesting.Wait();
-				Task.WaitAll(new List<Task>(workingPostIngestTasks.Values).ToArray());
+				Task.WaitAll(Tasks);
 
 				// Populate Result dictionary
-				foreach (var kvp in workingPostIngestPipes) {
-					Result.Add(kvp.Key, kvp.Value.OutResult);
-				}
-
-				Completed = true;
+				Result = workingPostIngestPipes.ToDictionary((kvp) => kvp.Key, (kvp) => kvp.Value.OutResult);
 			}
 
 			public MarkovPipe(IngestOptions opts) {
@@ -622,10 +614,7 @@ namespace MarkovChain {
 				localIngester = new Ingester(ingestOptions.infileCSV);
 
 				workingPostIngestPipes = new Dictionary<ulong, PostIngestPipe>();
-				workingPostIngestTasks = new Dictionary<ulong, Task>();
 				workingPostIngestInMsgs = new Dictionary<ulong, ConcurrentQueue<string>>();
-
-				Result = new Dictionary<ulong, MarkovStructure>();
 			}
 		}
 
