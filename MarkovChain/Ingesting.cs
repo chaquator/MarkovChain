@@ -59,7 +59,6 @@ namespace MarkovChain {
 
 		// TODO: consider cancellation and error handling
 		// TODO: implement option to not multiplex to different users
-		// TODO: keep track of all unqiue (user-id -> user-name)'s in CSV Ingest piece
 		// TODO: test creation in main, generate sentences from each, try combining, etc.
 		// TODO: address exceptions in Ingester (test them, improve them)
 
@@ -532,9 +531,9 @@ namespace MarkovChain {
 				}
 			}
 
-			Filter localFilter;
-			Dictionarizer localDic;
-			Markovizer localMark;
+			readonly Filter localFilter;
+			readonly Dictionarizer localDic;
+			readonly Markovizer localMark;
 
 			protected override void Run() {
 				// TODO: remove after testing
@@ -580,7 +579,7 @@ namespace MarkovChain {
 				}
 			}
 
-			protected void Run() {
+			public void Run() {
 				//	Set up CSV ingester (Run ingester as a task)
 				//	While !csv finished
 				//		Get messagedata if possible
@@ -589,11 +588,12 @@ namespace MarkovChain {
 				//	Once while exits, we can wait on ingesting task and all post-filter-pipe tasks
 				//	For each post filter pipe collect its result and populate result with it
 
+				// TODO: if deciding to use new Task, run task here
 				Task ingesting = localIngester.PieceTask;
 				ingesting.Wait(); // TODO: remove after testing
 
 				// Ingesting finished :- queue is empty & ingesting is completed
-				while (!localIngester.outMessageDatas.IsEmpty || ingesting.IsCompleted) {
+				while (!localIngester.outMessageDatas.IsEmpty || !ingesting.IsCompleted) {
 					if (!localIngester.outMessageDatas.TryDequeue(out MessageData messageData)) {
 						continue;
 					}
@@ -638,12 +638,11 @@ namespace MarkovChain {
 		}
 
 
-		// Soon to be obselete
+		[Obsolete]
 		/// <summary>
 		/// Main object to facilitate concurrent pipelined ingesting
 		/// </summary>
-		/*
-		public abstract class Pipeline {
+		public class Pipeline {
 			// ---Pipeline
 			//	INPUT CSV --(INGESTING) --> RAW STRINGS --(FILTERING)--> LIST OF SENTENCE STRINGS --(DICTIONARIZING)-->
 			//	--> SENTENCE BANK --(MARKOVIZING)--> MARKOV STRUCTURE
@@ -1085,6 +1084,5 @@ namespace MarkovChain {
 				return index;
 			}
 		}
-		*/
 	}
 }
